@@ -1,0 +1,8 @@
+node_modules/
+/main.js
+/data.json
+/.obsidian/
+/Rep Journal/
+/Set Ledger/
+.env
+.env.*

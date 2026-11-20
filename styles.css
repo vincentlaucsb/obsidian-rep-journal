@@ -1,0 +1,187 @@
+.rep-journal {
+  padding: var(--size-4-3);
+  overflow: auto;
+}
+
+.rep-journal-header,
+.rep-journal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  align-items: center;
+}
+
+.rep-journal-header {
+  justify-content: space-between;
+  padding-bottom: var(--size-4-3);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.rep-journal-body,
+.rep-journal-workout-layout {
+  display: grid;
+  gap: var(--size-4-3);
+  margin-top: var(--size-4-3);
+  container-type: inline-size;
+}
+
+.rep-journal-workout-layout {
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 0;
+  container-type: normal;
+  align-items: start;
+}
+
+@container (min-width: 740px) {
+  .rep-journal-workout-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.rep-journal-panel {
+  min-width: 0;
+  padding: var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+
+.rep-journal-panel h3,
+.rep-journal-previous h3 {
+  margin: 0 0 var(--size-4-2);
+  font-size: var(--font-ui-medium);
+  font-weight: var(--font-semibold);
+}
+
+.rep-journal-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--size-4-2);
+}
+
+.rep-journal-workout-toolbar {
+  max-width: 34rem;
+}
+
+.rep-journal-field {
+  display: grid;
+  gap: var(--size-2-2);
+  min-width: 0;
+  margin-bottom: var(--size-4-2);
+}
+
+.rep-journal-field[hidden],
+.rep-journal button[hidden] {
+  display: none;
+}
+
+.rep-journal-field > input,
+.rep-journal-field > select,
+.rep-journal textarea {
+  width: 100%;
+  min-width: 0;
+}
+
+.rep-journal-check {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin-bottom: var(--size-4-2);
+}
+
+.rep-journal-set-form > button[type='submit'] {
+  width: 100%;
+}
+
+.rep-journal-set-form,
+.rep-journal-previous,
+.rep-journal-issues {
+  margin-top: var(--size-4-3);
+}
+
+.rep-journal-previous > p {
+  margin: 0;
+}
+
+.rep-journal-previous ul,
+.rep-journal-history ol {
+  padding-inline-start: var(--size-4-5);
+}
+
+.rep-journal-set-list {
+  padding-inline-start: var(--size-4-5);
+  margin-top: 0;
+}
+
+.rep-journal-set-list > li {
+  margin-bottom: var(--size-4-2);
+}
+
+.rep-journal .rep-journal-set-row {
+  display: grid;
+  justify-content: start;
+  justify-items: start;
+  gap: var(--size-2-1);
+  width: 100%;
+  height: auto;
+  min-height: var(--input-height);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}
+
+.rep-journal-muted,
+.rep-journal-status {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+
+.rep-journal-status {
+  margin: var(--size-4-2) 0 0;
+}
+
+.rep-journal-status:empty {
+  margin: 0;
+}
+
+.rep-journal-chart {
+  display: block;
+  width: 100%;
+  height: 14rem;
+}
+
+.rep-journal-chart-detail {
+  margin-bottom: 0;
+}
+
+.rep-journal-history {
+  padding-block: var(--size-4-2);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.rep-journal-history:last-child {
+  border-bottom: 0;
+}
+
+.rep-journal-fields {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0 0 var(--size-4-3);
+}
+
+.rep-journal-context {
+  width: 100%;
+  min-height: 15rem;
+  resize: vertical;
+  font-family: var(--font-monospace);
+}
+
+@media (pointer: coarse) {
+  .rep-journal button,
+  .rep-journal-set-form > button[type='submit'],
+  .rep-journal-field > input,
+  .rep-journal-field > select {
+    min-height: 44px;
+  }
+}

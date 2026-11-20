@@ -1,0 +1,9 @@
+{
+  "id": "rep-journal",
+  "name": "Rep Journal",
+  "version": "0.1.0",
+  "minAppVersion": "1.7.2",
+  "description": "Log strength workouts, review exercise history, chart your estimated 1RM, and export your training data.",
+  "author": "Vince",
+  "isDesktopOnly": false
+}
