@@ -18,7 +18,7 @@ The vault contains the source data. Files under `Rep Journal/Exports` are snapsh
 | `weight_unit` | Legacy exercise-level unit. Rep Journal settings supply the preferred unit for new sets. |
 | `archived` | Boolean. Archived exercises remain available in Progress. |
 
-The note body can hold user notes and links. Keep the ID when changing the name or moving the file within the `Exercises` folder. Starter exercise notes are created when you choose them from the Workout picker. Tags filter the pickers and work independently of set measurements and estimated 1RM.
+The note body can hold user notes and links. Keep the ID when changing the name or moving the file within the `Exercises` folder. Starter exercise notes are created when you choose them with **Log set**. Tags filter the pickers and work independently of set measurements and estimated 1RM.
 
 New exercise files use readable names such as `Bench Press.md`. If a name is taken, Rep Journal adds a number. The **Tidy exercise notes** command renames the older UUID-based files through Obsidian and adds an **Exercise guides** section when a known guide or note source is available. It keeps the exercise IDs and existing note text.
 
@@ -44,7 +44,7 @@ Workout files that use only the original reps and load shape retain schema versi
 ## Analytics and exports
 
 - Rep Journal updates `Exports/rep-journal.csv` in the active journal folder in the background. It refreshes when you open or refresh the journal, add, edit, or delete a set, or save an exercise definition. Manual exports create dated copies. If source records cannot be read, the last complete export stays in place. The journal reports any export error. Select **Refresh** to retry.
-- The chart shows the best estimate per session from sets of 1–10 reps with a positive external weight. Weighted singles use their recorded load. For 2–10 reps, estimates use `weight × (1 + reps / 30)` after converting to the chart unit. A recorded single does not imply a tested maximum.
+- Exercise history and workout context use the best estimate per session from sets of 1–10 reps with a positive external weight. Weighted singles use their recorded load. For 2–10 reps, estimates use `weight × (1 + reps / 30)` after converting to the app's weight unit.
 - CSV uses one row per set, ordered by session and set order. Optional measurements have empty cells when absent. The `duration_seconds`, `distance_value` and `distance_unit` columns follow the existing columns. Exercise names resolve to the current exercise when available, with the set's recorded name as a fallback. Values that could be interpreted as spreadsheet formulas are escaped. Use JSON for exact text.
 - JSON contains the exercise properties and workout records with IDs, units, and workout notes. The export schema is `2` and includes the original version for each workout record. The Markdown body of an exercise note lives in the vault. Keep the vault files for a complete backup of those notes.
 - Workout context includes selected dates, all logged sets on those dates, and exercise summaries. Workout notes are opt-in. Copying contextualizes the selected data for an LLM you use separately.

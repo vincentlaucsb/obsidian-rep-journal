@@ -3,7 +3,9 @@ import { registerHooks } from 'node:module';
 import { test } from 'node:test';
 import { matchesExerciseName, starterExercises } from '../src/catalog.ts';
 import { toCsv, toJson } from '../src/exports.ts';
+import type { ExerciseEditInput } from '../src/journal-workflow.ts';
 import { createWorkout, makeId, type ExerciseDetails, type WorkoutSet } from '../src/model.ts';
+import { createObsidianJournalAdapter } from '../src/obsidian-journal-adapter.ts';
 import { MemoryVault } from './fixtures/obsidian.ts';
 
 const hooks = registerHooks({
@@ -18,6 +20,130 @@ hooks.deregister();
 const details: ExerciseDetails = {
   name: 'Bench press', aliases: ['Bench'], equipment: 'Barbell', loadMode: 'weight', unit: 'lb', archived: false,
 };
+
+void test('the native workout log uses the vault repository without writing on startup', async () => {
+  const vault = new MemoryVault();
+  const repository = new LedgerRepository(vault);
+  const bench = await repository.saveExercise(details);
+  const row = await repository.saveExercise({ ...details, name: 'Row', aliases: [] });
+  await vault.createFolder('Exercise');
+  const path = 'Exercise/Upper body.md';
+  await vault.create(path, '# Upper body\n\n## Pair\nMode: superset\n\n### Bench\n\n### Row\n');
+  const exportErrors: unknown[] = [];
+  const adapter = createObsidianJournalAdapter(vault, repository, {
+    vaultKey: 'memory-vault', weightUnit: () => 'lb',
+    reportExportError: (error) => { exportErrors.push(error); }, openExerciseNote: () => undefined,
+  });
+  const journal = await adapter.loadJournal();
+  assert.equal(vault.getFolderByPath('Rep Journal/Exports'), null);
+  assert.equal(journal.unit, 'lb');
+  assert.deepEqual(await adapter.listPlans(), [{ path, title: 'Upper body' }]);
+  const { plan } = await adapter.readPlan(path);
+  assert.deepEqual(plan?.sections[0].exercises.map(({ exerciseId }) => exerciseId), [bench.id, row.id]);
+
+  const input = { date: journal.today, workoutId: null, exerciseId: bench.id, setId: adapter.makeSetId(), values: { weight: 45, reps: 8 } };
+  const [first, retry] = await Promise.all([adapter.saveSet(input, 'kg'), adapter.saveSet(input, 'kg')]);
+  assert.deepEqual(first, retry);
+  assert.equal(first.path, `Rep Journal/Workouts/${journal.today}.json`);
+  assert.deepEqual(first.workout.sets[0].load, { mode: 'weight', value: 45, unit: 'kg' });
+  const append = await adapter.saveSet({ ...input, workoutId: first.workout.id, setId: adapter.makeSetId(), exerciseId: row.id }, 'lb');
+  assert.deepEqual(append.workout.sets.map(({ exerciseId }) => exerciseId), [bench.id, row.id]);
+
+  await adapter.refreshAutomaticCsv();
+  assert.match(await vault.adapter.read('Rep Journal/Exports/rep-journal.csv'), /Row/);
+  const { selected, sessions, unit } = await adapter.readProgress(bench.id);
+  assert.deepEqual(selected?.aliases, ['Bench']);
+  assert.equal(unit, 'lb');
+  assert.deepEqual(sessions.map(({ id, sets }) => ({ id, sets })), [{ id: first.workout.id, sets: ['8 reps · 45 kg'] }]);
+  assert.ok((sessions[0].estimatedMax ?? 0) > 125);
+  const data = await repository.read();
+  assert.equal(await vault.adapter.read(await adapter.saveExport('csv')), toCsv(data));
+  assert.equal(await vault.adapter.read(await adapter.saveExport('json')), toJson(data));
+  const context = { from: journal.today, to: journal.today, goal: 'Build strength', equipment: 'Rack', daysPerWeek: 3, includeNotes: false };
+  const preview = await adapter.prepareContext(context);
+  assert.match(preview, /"goal": "Build strength"/);
+  assert.match(preview, /"latestEstimated1RM"/);
+  await assert.rejects(adapter.prepareContext({ ...context, daysPerWeek: 8 }), /Days per week/);
+  assert.deepEqual(exportErrors, []);
+});
+
+void test('the native workout log corrects historical workouts and manages exercise notes', async () => {
+  const vault = new MemoryVault();
+  const repository = new LedgerRepository(vault);
+  const exercise = await repository.saveExercise(details);
+  await vault.adapter.process(exercise.path, (text) => `${text}\nPrivate setup cue.\n`);
+  const opened: string[] = [];
+  const adapter = createObsidianJournalAdapter(vault, repository, {
+    vaultKey: 'memory-vault', weightUnit: () => 'lb',
+    reportExportError: (error) => assert.fail(String(error)), openExerciseNote: ({ path }) => { opened.push(path); },
+  });
+  const date = '2024-01-06';
+  const set: WorkoutSet = {
+    id: makeId(), exerciseId: exercise.id, exerciseName: exercise.name, reps: 5,
+    load: { mode: 'assistance', value: 60, unit: 'kg' }, warmup: true,
+  };
+  const saved = await repository.saveWorkout(date, { kind: 'add', set });
+  const target = { date, workoutId: saved.workout.id };
+  const edited = await adapter.editWorkout({ ...target, change: { kind: 'edit', original: set, values: { reps: 9, weight: 55 } } });
+  const updated = { ...set, reps: 9, load: { ...set.load, value: 55 } };
+  assert.deepEqual(edited.workout.sets[0], updated);
+  await assert.rejects(adapter.editWorkout({ ...target, change: { kind: 'remove', original: set } }), /changed/);
+  await adapter.editWorkout({ ...target, change: { kind: 'remove', original: edited.workout.sets[0] } });
+  const noted = await adapter.editWorkout({ ...target, change: { kind: 'notes', original: '', value: 'Historical note' } });
+  assert.deepEqual(noted, { ...saved, workout: { ...saved.workout, sets: [], notes: 'Historical note' } });
+  await assert.rejects(adapter.editWorkout({ ...target, change: { kind: 'notes', original: '', value: 'Stale note' } }), /changed/);
+
+  const today = await adapter.loadJournal();
+  const stretch = today.starters.find(({ name }) => name === 'Hip Flexor Stretch');
+  assert.ok(stretch);
+  const [starter, sameStarter] = await Promise.all([adapter.addStarter(stretch.id), adapter.addStarter(stretch.id)]);
+  assert.deepEqual(starter, sameStarter);
+  assert.equal(starter.id, stretch.id);
+  assert.ok(!(await adapter.loadJournal()).starters.some(({ id }) => id === starter.id));
+  const historicalInput = { date, workoutId: null, exerciseId: starter.id, setId: adapter.makeSetId(), values: { time: '1:15' } };
+  await assert.rejects(adapter.saveSet(historicalInput, 'lb'), /date changed/);
+  const historical = await adapter.saveSet({ ...historicalInput, selectedDate: true }, 'lb');
+  assert.equal(historical.path, `Rep Journal/Workouts/${date}-2.json`);
+  assert.equal(historical.workout.sets[0].durationSeconds, 75);
+  const appended = await adapter.saveSet({ ...historicalInput, selectedDate: true, workoutId: historical.workout.id, setId: adapter.makeSetId() }, 'lb');
+  assert.equal(appended.workout.sets.length, 2);
+
+  const noteOnly = {
+    date: today.today, workoutId: null, newWorkoutId: adapter.makeSetId(),
+    change: { kind: 'notes' as const, original: '', value: 'Today note' },
+  };
+  const notes = await Promise.all([adapter.editWorkout(noteOnly), adapter.editWorkout(noteOnly)]);
+  assert.deepEqual(notes[0], notes[1]);
+  assert.equal(notes[0].workout.id, noteOnly.newWorkoutId);
+  const historicalNote = await adapter.editWorkout({ ...noteOnly, date, selectedDate: true, newWorkoutId: adapter.makeSetId() });
+  assert.equal(historicalNote.path, `Rep Journal/Workouts/${date}-3.json`);
+  assert.equal(historicalNote.workout.notes, noteOnly.change.value);
+
+  const input: ExerciseEditInput = {
+    exerciseId: exercise.id, original: exercise,
+    values: { name: 'Paused Bench', aliases: ['Paused, wide grip'], measurements: ['reps', 'time'], distanceUnit: 'm',
+      tags: [{ group: 'role', name: 'Auxiliary' }], archived: true },
+  };
+  const renamed = await adapter.saveExercise(input, 'kg');
+  assert.equal(renamed.path, exercise.path);
+  assert.equal(renamed.id, exercise.id);
+  assert.deepEqual(renamed.aliases, ['Paused, wide grip', exercise.name]);
+  assert.equal(renamed.archived, true);
+  assert.ok((await vault.adapter.read(exercise.path)).endsWith('Private setup cue.\n'));
+  await assert.rejects(adapter.saveExercise(input, 'kg'), /changed/);
+  const active = await adapter.saveExercise({ ...input, original: renamed, values: { ...input.values, archived: false } }, 'kg');
+  assert.equal(active.archived, false);
+  adapter.openExerciseNote?.(active);
+  assert.deepEqual(opened, [exercise.path]);
+
+  const newExercise = { ...input, exerciseId: adapter.makeSetId(), original: null,
+    values: { ...input.values, name: 'Overhead Press', archived: false } };
+  const created = await adapter.saveExercise(newExercise, 'lb');
+  assert.equal(created.path, 'Rep Journal/Exercises/Overhead Press.md');
+  assert.match(await vault.adapter.read(created.path), /## Exercise guides/);
+  assert.deepEqual(await adapter.saveExercise(newExercise, 'lb'), created);
+  assert.equal((await adapter.loadJournal()).workouts.length, 4);
+});
 
 void test('persists exercise notes and hidden workout JSON through a reload and correction', async () => {
   const vault = new MemoryVault();

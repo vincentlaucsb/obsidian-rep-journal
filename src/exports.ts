@@ -1,5 +1,5 @@
 import { exerciseHistory, strengthTrend } from './analytics.ts';
-import { SCHEMA_VERSION, type ExerciseNote, type LedgerData, type WeightUnit, type WorkoutSet } from './model.ts';
+import { isDate, isRecord, makeId, SCHEMA_VERSION, type ExerciseNote, type LedgerData, type WeightUnit, type WorkoutSet } from './model.ts';
 
 export interface ContextOptions {
   from: string;
@@ -8,6 +8,27 @@ export interface ContextOptions {
   equipment: string;
   daysPerWeek: number | null;
   includeNotes: boolean;
+}
+
+export type ExportFormat = 'csv' | 'json';
+export const automaticCsvFilename = 'rep-journal.csv';
+
+export function exportSnapshotFilename(format: ExportFormat): string {
+  return `rep-journal-${new Date().toISOString().slice(0, 10)}-${makeId().slice(0, 8)}.${format}`;
+}
+
+export function readContextOptions(input: unknown): ContextOptions {
+  if (!isRecord(input) || !isDate(input.from) || !isDate(input.to) || input.from > input.to) {
+    throw new Error('Choose a valid date range.');
+  }
+  const { from, to, goal, equipment, daysPerWeek, includeNotes } = input;
+  if (typeof goal !== 'string' || goal.length > 500 || typeof equipment !== 'string' || equipment.length > 500) {
+    throw new Error('Enter a training goal and equipment of up to 500 characters each.');
+  }
+  if (daysPerWeek !== null && (typeof daysPerWeek !== 'number' || !Number.isInteger(daysPerWeek) || daysPerWeek < 1 || daysPerWeek > 7)) {
+    throw new Error('Days per week must be a whole number from 1 to 7.');
+  }
+  return { from, to, goal: goal.trim(), equipment: equipment.trim(), daysPerWeek, includeNotes: includeNotes === true };
 }
 
 const csvHeader = [
@@ -51,6 +72,10 @@ export function toJson(data: LedgerData): string {
     exercises: data.exercises.map(({ path, ...exercise }) => ({ ...exercise, notePath: path })),
     workouts: data.workouts.map(({ workout }) => workout),
   }, null, 2)}\n`;
+}
+
+export function serializeExport(data: LedgerData, format: ExportFormat): string {
+  return format === 'csv' ? toCsv(data) : toJson(data);
 }
 
 function contextSet(set: WorkoutSet): Pick<WorkoutSet, 'id' | 'reps' | 'load' | 'durationSeconds' | 'distance'> {

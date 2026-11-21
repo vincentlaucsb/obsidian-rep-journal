@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { WorkoutNoteDrafts } from '../standalone/drafts.js';
 import { exerciseHistory, estimatedMax, progressExercises, strengthTrend } from '../src/analytics.ts';
 import { matchesExerciseName, matchesTags, starterExercises } from '../src/catalog.ts';
-import { WorkoutNoteDrafts } from '../src/drafts.ts';
 import { toCsv, toJson, workoutContext, type ContextOptions } from '../src/exports.ts';
 import {
   changeWorkout, createWorkout, describeSet, exerciseFrontmatter, isDate, makeId, parseDuration, parseWorkout,
-  readExercise, resolveWorkoutDate, SCHEMA_VERSION, setMeasurements, tagKey,
+  readExercise, SCHEMA_VERSION, setMeasurements, tagKey,
   type ExerciseNote, type LedgerData, type Workout, type WorkoutSet,
 } from '../src/model.ts';
 
@@ -35,14 +35,11 @@ const contextOptions: ContextOptions = {
   from: '2026-10-01', to: '2026-10-31', goal: 'Build strength', equipment: 'Barbell', daysPerWeek: 3, includeNotes: false,
 };
 
-void test('validates calendar dates and follows local midnight only for the Today view', () => {
+void test('validates calendar dates', () => {
   assert.equal(isDate('2024-02-29'), true);
   assert.equal(isDate('2025-02-29'), false);
   assert.equal(isDate('2026-11-31'), false);
   assert.equal(isDate('0000-01-01'), false);
-  const now = new Date(2026, 10, 20, 0, 1);
-  assert.equal(resolveWorkoutDate('2026-11-19', true, now), '2026-11-20');
-  assert.equal(resolveWorkoutDate('2026-11-19', false, now), '2026-11-19');
 });
 
 void test('workout records retain order and reject corrupt, duplicate, or unsupported sets', () => {
@@ -149,7 +146,7 @@ void test('history keeps exercises whose Markdown notes are temporarily absent',
   assert.equal(exerciseHistory([old, recent], progressExercises(ledger)[0].id).length, 2);
 });
 
-void test('1RM uses one best eligible set per session and normalizes the chart unit', () => {
+void test('1RM uses one best eligible set per session and converts to the selected unit', () => {
   const single = set({ reps: 1, load: { mode: 'weight', value: 200, unit: 'lb' } });
   assert.equal(estimatedMax(single, 'lb'), 200);
   assert.ok(Math.abs((estimatedMax(single, 'kg') ?? 0) - 90.718474) < 0.000001);

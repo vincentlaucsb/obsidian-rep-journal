@@ -27,7 +27,7 @@ interface WrittenRecords {
   workouts: Array<{ workoutId: string; path: string }>;
 }
 
-function hasErrorCode(error: unknown, ...codes: string[]): boolean {
+export function hasErrorCode(error: unknown, ...codes: string[]): boolean {
   return isRecord(error) && typeof error.code === 'string' && codes.includes(error.code);
 }
 
@@ -41,13 +41,18 @@ async function directoryExists(path: string): Promise<boolean> {
   }
 }
 
-function readNote(text: string): Exercise | null {
+export function exerciseNoteHeader(text: string): RegExpExecArray | null {
   const header = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)^---[ \t]*\r?$/m.exec(text);
-  if (header?.index === 0) return readCatalogExercise(parse(header[1]));
+  if (header?.index === 0) return header;
   if (/^\uFEFF?---[ \t]*\r?\n/.test(text) && /^set_ledger_id:/m.test(text)) {
     throw new Error('Exercise frontmatter needs a closing --- line.');
   }
   return null;
+}
+
+function readNote(text: string): Exercise | null {
+  const header = exerciseNoteHeader(text);
+  return header ? readCatalogExercise(parse(header[1])) : null;
 }
 
 async function listRecords(root: string, section: string, extension: string, recursive: boolean): Promise<string[]> {
@@ -189,7 +194,7 @@ export async function readImportVault(root: string): Promise<ImportVault> {
   };
 }
 
-async function writeNewFile(path: string, text: string): Promise<void> {
+export async function writeNewFile(path: string, text: string): Promise<void> {
   const temporary = join(dirname(path), `.rep-journal-import-${randomUUID()}.tmp`);
   const file = await open(temporary, 'wx');
   try {
@@ -241,7 +246,7 @@ async function saveNewWorkout(root: string, path: string, workout: Workout): Pro
   }
 }
 
-async function ensureDirectory(root: string, folder: string, section: string): Promise<void> {
+export async function ensureDirectory(root: string, folder: string, section: string): Promise<void> {
   for (const path of [folder, `${folder}/${section}`]) {
     const absolute = join(root, path);
     if (await directoryExists(absolute)) continue;

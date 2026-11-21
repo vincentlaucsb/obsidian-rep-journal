@@ -1,7 +1,10 @@
-import { MarkdownView, Notice, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type TFile } from 'obsidian';
-import { LEDGER_VIEW, LedgerView, type LedgerScreen } from './ledger-view.ts';
-import { errorMessage, isRecord, isUnit, type WeightUnit } from './model.ts';
+import { FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type TFile, type WorkspaceLeaf } from 'obsidian';
+import { errorMessage, isRecord, isUnit, type ExerciseNote, type WeightUnit } from './model.ts';
+import { MODERN_JOURNAL_VIEW, ModernJournalView, type JournalScreen } from './modern-journal-view.ts';
+import { createObsidianJournalAdapter } from './obsidian-journal-adapter.ts';
 import { LedgerRepository } from './repository.ts';
+
+const legacyView = 'set-ledger-workout-view';
 
 export default class RepJournalPlugin extends Plugin {
   private opening = false;
@@ -17,16 +20,28 @@ export default class RepJournalPlugin extends Plugin {
     const stored: unknown = await this.loadData();
     if (isRecord(stored)) this.preferences = stored;
     const repository = new LedgerRepository(this.app.vault);
-    this.registerView(LEDGER_VIEW, (leaf) => new LedgerView(leaf, repository, this.manifest.name, this.weightUnit));
+    const vault = this.app.vault;
+    const vaultKey = vault.adapter instanceof FileSystemAdapter ? vault.adapter.getBasePath() : vault.getName();
+    const adapter = createObsidianJournalAdapter(vault, repository, {
+      vaultKey: `obsidian:${vaultKey}`,
+      weightUnit: () => this.weightUnit,
+      reportExportError: (error) => { new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`); },
+      openExerciseNote: (exercise) => { void this.openExerciseNote(exercise); },
+    });
+    const createJournalView = (leaf: WorkspaceLeaf): ModernJournalView => new ModernJournalView(leaf, adapter, this.manifest.name);
+    this.registerView(MODERN_JOURNAL_VIEW, createJournalView);
+    // Restore saved layouts from the Set Ledger preview using the shared journal.
+    this.registerView(legacyView, createJournalView);
     this.addSettingTab(new RepJournalSettings(this));
-    this.addRibbonIcon('dumbbell', 'Open workout log', () => { void this.openLedger('workout'); });
-    this.addCommand({ id: 'open-workout-log', name: 'Open workout log', callback: () => { void this.openLedger('workout'); } });
-    this.addCommand({ id: 'open-exercise-progress', name: 'Open exercise progress', callback: () => { void this.openLedger('progress'); } });
+    this.addRibbonIcon('dumbbell', 'Open workout log', () => { void this.openModern(); });
+    this.addCommand({ id: 'open-workout-log', name: 'Open workout log', callback: () => { void this.openModern(); } });
+    this.addCommand({ id: 'open-exercise-progress', name: 'Open exercise progress', callback: () => { void this.openModern('progress'); } });
+    this.addCommand({ id: 'open-workout-export', name: 'Open workout export', callback: () => { void this.openModern('export'); } });
     this.addCommand({
       id: 'start-workout-plan', name: 'Start workout plan from current note', checkCallback: (checking) => {
         const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
         if (!file) return false;
-        if (!checking) void this.openLedger('workout', file);
+        if (!checking) void this.startPlan(file);
         return true;
       },
     });
@@ -41,8 +56,8 @@ export default class RepJournalPlugin extends Plugin {
       const summary = `Exercise notes: ${result.renamed} renamed, ${result.guidesAdded} updated with guide links.`;
       const issues = result.issues.length ? ` ${result.issues.length} need attention. ${result.issues[0]}` : '';
       new Notice(summary + issues, issues ? 10000 : 6000);
-      for (const { view } of this.app.workspace.getLeavesOfType(LEDGER_VIEW)) {
-        if (view instanceof LedgerView) await view.reload();
+      for (const { view } of this.app.workspace.getLeavesOfType(MODERN_JOURNAL_VIEW)) {
+        if (view instanceof ModernJournalView) await view.reload();
       }
     } catch (error: unknown) {
       new Notice(`Could not tidy exercise notes. ${errorMessage(error)}`);
@@ -55,27 +70,42 @@ export default class RepJournalPlugin extends Plugin {
     const next = { ...this.preferences, weightUnit };
     await this.saveData(next);
     this.preferences = next;
-    for (const leaf of this.app.workspace.getLeavesOfType(LEDGER_VIEW)) {
-      if (leaf.view instanceof LedgerView) leaf.view.setWeightUnit(weightUnit);
+    for (const { view } of this.app.workspace.getLeavesOfType(MODERN_JOURNAL_VIEW)) {
+      if (view instanceof ModernJournalView) view.setWeightUnit(weightUnit);
     }
   }
 
-  private async openLedger(screen: LedgerScreen, planFile?: TFile): Promise<void> {
+  private openModern(screen: JournalScreen = 'today'): Promise<void> {
+    return this.openView((view) => { void view.showScreen(screen); });
+  }
+
+  private startPlan(file: TFile): Promise<void> {
+    return this.openView((view) => view.startPlan(file));
+  }
+
+  private async openExerciseNote(exercise: ExerciseNote): Promise<void> {
+    try {
+      const file = this.app.vault.getFileByPath(exercise.path);
+      if (!file) throw new Error('The note may have moved. Refresh the workout log and try again.');
+      await this.app.workspace.getLeaf('tab').openFile(file, { active: true });
+    } catch (error: unknown) {
+      new Notice(`Could not open the exercise note. ${errorMessage(error)}`);
+    }
+  }
+
+  private async openView(open: (view: ModernJournalView) => void | Promise<void>): Promise<void> {
     if (this.opening) return;
     this.opening = true;
     try {
       const workspace = this.app.workspace;
-      let leaf = workspace.getLeavesOfType(LEDGER_VIEW)[0];
+      let leaf = workspace.getLeavesOfType(MODERN_JOURNAL_VIEW)[0] ?? workspace.getLeavesOfType(legacyView)[0];
       if (!leaf) {
         leaf = workspace.getLeaf('tab');
-        await leaf.setViewState({ type: LEDGER_VIEW, active: true });
+        await leaf.setViewState({ type: MODERN_JOURNAL_VIEW, active: true });
       }
       await workspace.revealLeaf(leaf);
       workspace.setActiveLeaf(leaf, { focus: true });
-      if (leaf.view instanceof LedgerView) {
-        if (planFile) await leaf.view.startPlan(planFile);
-        else leaf.view.showScreen(screen);
-      }
+      if (leaf.view instanceof ModernJournalView) await open(leaf.view);
     } catch (error: unknown) {
       new Notice(`Could not open the workout log. ${errorMessage(error)}`);
     } finally {

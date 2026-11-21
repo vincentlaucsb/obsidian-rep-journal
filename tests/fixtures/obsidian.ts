@@ -65,6 +65,7 @@ export class MemoryVault {
   getAbstractFileByPath(path: string): TFolder | TFile | null { return this.getFolderByPath(path) ?? this.getFileByPath(path); }
   getFileByPath(path: string): TFile | null { return path.endsWith('.md') ? this.files.get(path)?.file ?? null : null; }
   getFolderByPath(path: string): TFolder | null { return this.folders.get(path) ?? null; }
+  getMarkdownFiles(): TFile[] { return [...this.files.values()].map(({ file }) => file).filter(({ extension }) => extension === 'md'); }
 
   async create(path: string, text: string): Promise<TFile> {
     if (this.files.has(path)) throw new Error('File exists');

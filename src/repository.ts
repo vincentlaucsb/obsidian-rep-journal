@@ -1,7 +1,7 @@
 import { getFrontMatterInfo, parseYaml, stringifyYaml, TFile, TFolder, type DataAdapter, type Vault } from 'obsidian';
 import { readCatalogExercise } from './catalog.ts';
 import { appendExerciseGuides } from './exercise-guides.ts';
-import { toCsv } from './exports.ts';
+import { automaticCsvFilename, exportSnapshotFilename, toCsv, type ExportFormat } from './exports.ts';
 import {
   exerciseFilename, hasLegacyExerciseFilename, journalFolder, journalFolders, legacyFolder, nextWorkoutSession, workoutFilename,
 } from './journal-paths.ts';
@@ -165,9 +165,10 @@ export class LedgerRepository {
     return { renamed, guidesAdded, issues };
   }
 
-  async saveWorkout(date: string, change: WorkoutChange, original?: WorkoutFile): Promise<WorkoutFile> {
+  async saveWorkout(date: string, change: WorkoutChange, original?: WorkoutFile, newWorkoutId?: string): Promise<WorkoutFile> {
     if (!original) {
       const workout = changeWorkout(createWorkout(date), change);
+      if (newWorkoutId) workout.id = newWorkoutId;
       const pending = workoutCreations.get(this.vault) ?? Promise.resolve();
       const creation = pending.catch(() => undefined).then(() => this.createWorkoutFile(workout));
       workoutCreations.set(this.vault, creation);
@@ -195,11 +196,17 @@ export class LedgerRepository {
     return { workout: parseWorkout(text), path: original.path };
   }
 
-  async writeExport(extension: 'csv' | 'json', text: string): Promise<string> {
+  async writeExport(format: ExportFormat, text: string): Promise<string> {
     const folder = await this.ensureFolder('Exports');
-    const date = new Date().toISOString().slice(0, 10);
-    const path = `${folder}/rep-journal-${date}-${makeId().slice(0, 8)}.${extension}`;
-    return (await this.vault.create(path, text)).path;
+    while (true) {
+      const path = `${folder}/${exportSnapshotFilename(format)}`;
+      if (await this.vault.adapter.exists(path)) continue;
+      try {
+        return (await this.vault.create(path, text)).path;
+      } catch (error: unknown) {
+        if (!await this.vault.adapter.exists(path)) throw error;
+      }
+    }
   }
 
   refreshAutomaticCsv(): Promise<void> {
@@ -226,7 +233,7 @@ export class LedgerRepository {
   private async writeAutomaticCsv(): Promise<void> {
     const text = toCsv(await this.read());
     const folder = await this.ensureFolder('Exports');
-    const path = `${folder}/rep-journal.csv`;
+    const path = `${folder}/${automaticCsvFilename}`;
     if (!await this.vault.adapter.exists(path)) {
       await this.vault.create(path, text);
       return;

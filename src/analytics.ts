@@ -1,5 +1,6 @@
+import { convertWeight } from '../standalone/units.js';
 import {
-  compareWorkouts, setMeasurements, type DistanceUnit, type ExerciseChoice, type LedgerData, type WeightUnit,
+  compareWorkouts, setMeasurements, type ExerciseChoice, type LedgerData, type WeightUnit,
   type Workout, type WorkoutSet,
 } from './model.ts';
 
@@ -13,19 +14,6 @@ export interface StrengthPoint {
   sessionId: string;
   set: WorkoutSet;
   value: number;
-}
-
-const KG_PER_LB = 0.45359237;
-const METERS_PER_UNIT: Record<DistanceUnit, number> = { m: 1, km: 1000, mi: 1609.344, yd: 0.9144, ft: 0.3048 };
-
-export function convertWeight(value: number, from: WeightUnit, to: WeightUnit): number {
-  if (from === to) return value;
-  return from === 'lb' ? value * KG_PER_LB : value / KG_PER_LB;
-}
-
-export function convertDistance(value: number, from: DistanceUnit, to: DistanceUnit): number {
-  if (from === to) return value;
-  return value * (METERS_PER_UNIT[from] / METERS_PER_UNIT[to]);
 }
 
 export function exerciseHistory(workouts: Workout[], exerciseId: string): ExerciseSession[] {
@@ -50,22 +38,6 @@ export function progressExercises(data: LedgerData): ExerciseChoice[] {
     }
   }
   return [...catalog.values()].sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function workoutExercises(data: LedgerData): ExerciseChoice[] {
-  const remaining = new Map(data.exercises.filter((exercise) => !exercise.archived).map((exercise) => [exercise.id, exercise]));
-  const recent: ExerciseChoice[] = [];
-  for (const { workout } of [...data.workouts].reverse()) {
-    for (const set of [...workout.sets].reverse()) {
-      const exercise = remaining.get(set.exerciseId);
-      if (exercise) {
-        recent.push(exercise);
-        remaining.delete(set.exerciseId);
-      }
-    }
-    if (!remaining.size) break;
-  }
-  return [...recent, ...remaining.values()];
 }
 
 export function estimatedMax(set: WorkoutSet, unit: WeightUnit): number | null {

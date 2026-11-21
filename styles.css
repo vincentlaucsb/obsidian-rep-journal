@@ -1,240 +1,162 @@
-.rep-journal {
-  padding: var(--size-4-3);
-  overflow: auto;
-}
+/* Shared by Obsidian and the standalone app. */
+body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
+.rep-journal-modern-content { padding: 0; }
+.rep-journal-modern.rep-journal-standalone { min-height: 100dvh; }
 
-.rep-journal-header,
-.rep-journal-actions {
+.rep-journal-modern {
+  --paper: var(--background-primary, light-dark(#f2f4eb, #171d19));
+  --surface: var(--background-secondary, light-dark(#fbfcf6, #222b24));
+  --text: var(--text-normal, light-dark(#202a22, #eef3e9));
+  --muted: var(--text-muted, light-dark(#536357, #aab9ac));
+  --border: var(--background-modifier-border, light-dark(#d5ddd0, #445449));
+  --accent: var(--interactive-accent, light-dark(#34573d, #d0e69e));
+  --on-accent: var(--text-on-accent, light-dark(#f8fff3, #25341e));
+  --plan: var(--background-secondary-alt, light-dark(#e0ead7, #2f3e2d));
+  --error: var(--text-error, light-dark(#932c24, #ffaea5));
+  --shadow: var(--shadow-s, 0 2px 9px light-dark(#22311e12, #00000030));
+  --control: var(--interactive-normal, var(--surface));
+  --input: var(--background-modifier-form-field, var(--surface));
+  font: var(--font-ui-medium, 16px)/var(--line-height-normal, 1.48) var(--font-interface, system-ui, -apple-system, 'Segoe UI', sans-serif);
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-2);
-  align-items: center;
-}
-
-.rep-journal-header {
-  justify-content: space-between;
-  padding-bottom: var(--size-4-3);
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.rep-journal-body,
-.rep-journal-workout-layout {
-  display: grid;
-  gap: var(--size-4-3);
-  margin-top: var(--size-4-3);
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100%;
   container-type: inline-size;
+  color: var(--text);
+  background: var(--paper);
 }
 
-.rep-journal-workout-layout {
-  grid-template-columns: minmax(0, 1fr);
-  margin-top: 0;
-  container-type: normal;
-  align-items: start;
-}
+.rep-journal-modern * { box-sizing: border-box; }
 
-@container (min-width: 740px) {
-  .rep-journal-workout-layout {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-}
+.rep-journal-modern button, .rep-journal-modern select, .rep-journal-modern input, .rep-journal-modern textarea { font: inherit; color: inherit; }
+.rep-journal-modern h1, .rep-journal-modern h2, .rep-journal-modern h3, .rep-journal-modern p { margin: 0; }
+.rep-journal-modern h1 { font-size: clamp(1.65rem, 6vw, 2.4rem); letter-spacing: -.06em; line-height: 1.12; }
+.rep-journal-modern h2 { font-size: 1.02rem; letter-spacing: -.02em; }
+.rep-journal-modern h3 { font-size: .95rem; }
 
-.rep-journal-panel {
-  min-width: 0;
-  padding: var(--size-4-3);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
+.rep-journal-modern button, .rep-journal-modern select, .rep-journal-modern input, .rep-journal-modern textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--button-radius, .75rem);
+  background: var(--control);
+  min-height: 2.75rem;
+  padding: .55rem .78rem;
 }
+.rep-journal-modern input, .rep-journal-modern select, .rep-journal-modern textarea { background: var(--input); }
+.rep-journal-modern button { white-space: nowrap; cursor: pointer; }
+.rep-journal-modern button:disabled { opacity: .42; cursor: default; }
+.rep-journal-modern button:enabled:hover { border-color: var(--accent); }
+.rep-journal-modern :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.rep-journal-modern .primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 630; }
+.rep-journal-modern .text-button { padding-inline: 0; border-color: transparent; background: transparent; text-decoration: underline; text-underline-offset: .25em; }
+.rep-journal-modern .text-button:enabled:hover { border-color: transparent; color: var(--accent); }
+.rep-journal-modern .secondary { color: var(--muted); font-size: .86rem; }
+.rep-journal-modern .notes { color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.rep-journal-modern .empty { color: var(--muted); padding: 1.2rem 0; }
+.rep-journal-modern .warning { color: var(--error); overflow-wrap: anywhere; }
 
-.rep-journal-panel h3,
-.rep-journal-previous h3 {
-  margin: 0 0 var(--size-4-2);
-  font-size: var(--font-ui-medium);
-  font-weight: var(--font-semibold);
-}
+.rep-journal-modern .masthead { border-bottom: 1px solid var(--border); background: var(--surface); }
+.rep-journal-modern .masthead-content, .rep-journal-modern .rj-workspace { max-width: 43rem; margin-inline: auto; }
+.rep-journal-modern .masthead-content { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .8rem 1rem; }
+.rep-journal-modern .wordmark { border-color: transparent; background: transparent; padding-inline: 0; font-weight: 740; letter-spacing: -.065em; font-size: 1.23rem; }
+.rep-journal-modern .wordmark:enabled:hover { border-color: transparent; }
+.rep-journal-modern .masthead nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+.rep-journal-modern .masthead nav button { font-size: .86rem; }
+.rep-journal-modern .masthead nav button[aria-current='page'] { border-color: var(--accent); }
+.rep-journal-modern .wordmark, .rep-journal-modern .text-button, .rep-journal-modern .primary { box-shadow: none; }
+.rep-journal-modern .rj-workspace { display: flex; flex: 1; flex-direction: column; width: 100%; padding: 1.4rem 1rem 1rem; }
 
-.rep-journal-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--size-4-2);
-}
-
-.rep-journal-workout-toolbar {
-  max-width: 34rem;
-}
-
-.rep-journal-plan {
-  display: grid;
-  gap: var(--size-4-2);
-}
-
-.rep-journal-plan-header {
+.rep-journal-modern .log-screen { display: flex; flex: 1; flex-direction: column; gap: 1rem; }
+.rep-journal-modern .session-header { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem; align-items: center; gap: .5rem; text-align: center; }
+.rep-journal-modern .session-title { display: grid; gap: .18rem; }
+.rep-journal-modern .arrow { width: 2.75rem; padding-inline: 0; font-size: 1.2rem; }
+.rep-journal-modern .log-actions { display: flex; justify-content: flex-end; align-items: center; gap: .5rem; }
+.rep-journal-modern .log-actions select { min-width: 0; margin-right: auto; }
+.rep-journal-modern .log-groups { display: grid; gap: .72rem; }
+.rep-journal-modern .exercise-card, .rep-journal-modern .session-notes { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-l, 1rem); padding: .8rem .95rem; box-shadow: var(--shadow); }
+.rep-journal-modern .exercise-card ol { margin: .45rem 0 0; list-style: none; padding: 0; }
+.rep-journal-modern .set-row { border-top: 1px solid var(--border); padding: .4rem .1rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: .35rem .7rem; font-variant-numeric: tabular-nums; }
+.rep-journal-modern .set-row:last-child { padding-bottom: .1rem; }
+.rep-journal-modern .set-row { align-items: center; justify-content: space-between; }
+.rep-journal-modern .set-row button { font-size: .85rem; }
+.rep-journal-modern .set-measurements { display: flex; flex: 1; flex-wrap: wrap; gap: .25rem .7rem; }
+.rep-journal-modern .session-notes summary, .rep-journal-modern .exercise-tags summary { cursor: pointer; font-weight: 600; }
+.rep-journal-modern .session-notes form, .rep-journal-modern .exercise-tags label { margin-top: .65rem; }
+.rep-journal-modern .plan-banner {
+  position: sticky;
+  z-index: 1;
+  bottom: max(.65rem, env(safe-area-inset-bottom));
+  margin-top: auto;
+  display: flex;
   justify-content: space-between;
-}
-
-.rep-journal-plan h3,
-.rep-journal-plan > p {
-  margin: 0;
-}
-
-.rep-journal-plan-notes {
-  overflow-wrap: anywhere;
-}
-
-.rep-journal-plan-notes > :first-child {
-  margin-top: 0;
-}
-
-.rep-journal-plan-notes > :last-child {
-  margin-bottom: 0;
-}
-
-.rep-journal-field {
-  display: grid;
-  gap: var(--size-2-2);
-  min-width: 0;
-  margin-bottom: var(--size-4-2);
-}
-
-.rep-journal-field[hidden],
-.rep-journal button[hidden] {
-  display: none;
-}
-
-.rep-journal-field > input,
-.rep-journal-field > select,
-.rep-journal textarea {
-  width: 100%;
-  min-width: 0;
-}
-
-.rep-journal-check {
-  display: flex;
   align-items: center;
-  gap: var(--size-4-2);
-  margin-bottom: var(--size-4-2);
+  gap: .7rem;
+  padding: .75rem .85rem .27rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l, 1rem);
+  background: var(--plan);
+  box-shadow: var(--shadow);
+}
+.rep-journal-modern .plan-banner .text-button { font-size: .86rem; }
+.rep-journal-modern .plan-banner strong { overflow-wrap: anywhere; }
+
+.rep-journal-modern .page { display: grid; gap: .9rem; }
+.rep-journal-modern .page > .text-button { justify-self: start; }
+.rep-journal-modern .calendar-header { margin-top: .35rem; }
+.rep-journal-modern .calendar-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: .25rem; }
+.rep-journal-modern .weekday, .rep-journal-modern .empty-day { display: grid; place-items: center; color: var(--muted); }
+.rep-journal-modern .weekday { font-size: .78rem; }
+.rep-journal-modern .calendar-day { min-height: 2.75rem; font-variant-numeric: tabular-nums; }
+.rep-journal-modern .calendar-day { display: grid; place-content: center; justify-items: center; gap: .12rem; padding: .12rem 0; }
+.rep-journal-modern .calendar-day:not([data-has-workout], [aria-current]) { background: transparent; border-color: transparent; color: var(--muted); }
+.rep-journal-modern .calendar-day:enabled:hover { border-color: var(--accent); }
+.rep-journal-modern .calendar-date-picker { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; }
+.rep-journal-modern .calendar-date-picker label { display: grid; gap: .35rem; }
+.rep-journal-modern .calendar-day[aria-current='date'], .rep-journal-modern .exercise-choice[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.rep-journal-modern .calendar-day[aria-pressed='true'] { border-color: var(--accent); }
+.rep-journal-modern .markers { display: flex; align-items: center; gap: .18rem; }
+.rep-journal-modern .markers i { width: .31rem; height: .31rem; border-radius: 50%; background: var(--accent); }
+.rep-journal-modern .calendar-day[aria-current='date'] .markers i { background: currentColor; }
+.rep-journal-modern .legend { display: flex; align-items: center; gap: .45rem; }
+.rep-journal-modern .calendar-sessions, .rep-journal-modern .plan-list { display: grid; gap: .45rem; }
+.rep-journal-modern .calendar-sessions button, .rep-journal-modern .plan-option { text-align: left; }
+.rep-journal-modern .plan-option { display: grid; text-wrap: wrap; overflow-wrap: anywhere; }
+.rep-journal-modern .plan-controls { display: flex; gap: .5rem; flex-wrap: wrap; }
+.rep-journal-modern .plan-section { display: grid; gap: .55rem; border: 1px solid var(--border); border-radius: var(--radius-l, 1rem); padding: .75rem .83rem; background: var(--surface); }
+.rep-journal-modern .current-section { background: var(--plan); }
+.rep-journal-modern .section-heading { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.rep-journal-modern .plan-exercise { display: grid; gap: .22rem; border-top: 1px solid var(--border); padding-top: .45rem; }
+.rep-journal-modern .exercise-choice { justify-self: start; white-space: normal; text-align: left; }
+.rep-journal-modern .entry-form, .rep-journal-modern .entry-form label { display: grid; gap: .5rem; }
+.rep-journal-modern .entry-form { gap: .85rem; }
+.rep-journal-modern .entry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+.rep-journal-modern .entry-form input, .rep-journal-modern .entry-form select, .rep-journal-modern .entry-form textarea { width: 100%; min-width: 0; }
+.rep-journal-modern .entry-form textarea { resize: vertical; }
+.rep-journal-modern .entry-form .check-field { display: flex; gap: .5rem; align-items: center; }
+.rep-journal-modern .check-field input[type=checkbox] { width: 1.1rem; height: 1.1rem; min-height: 0; margin: 0; padding: 0; }
+.rep-journal-modern .exercise-checks, .rep-journal-modern .delete-confirm { border: 1px solid var(--border); border-radius: var(--radius-l, 1rem); padding: .55rem .7rem; }
+.rep-journal-modern .exercise-checks { display: flex; flex-wrap: wrap; gap: .55rem .9rem; }
+.rep-journal-modern .manage-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
+.rep-journal-modern .progress-heading { display: grid; gap: .16rem; }
+.rep-journal-modern .progress-heading h2 { font-size: 1.3rem; overflow-wrap: anywhere; }
+.rep-journal-modern .progress-history, .rep-journal-modern .context-preview { display: grid; gap: .6rem; min-width: 0; }
+.rep-journal-modern .progress-session { font-variant-numeric: tabular-nums; }
+.rep-journal-modern .progress-session summary, .rep-journal-modern .exercise-filters summary { cursor: pointer; font-weight: 600; }
+.rep-journal-modern .progress-session summary .secondary { display: block; margin-left: 1rem; font-weight: 400; }
+.rep-journal-modern .exercise-filters fieldset { margin: .5rem 0 0; min-width: 0; }
+.rep-journal-modern .exercise-filters .check-field { display: inline-flex; align-items: center; gap: .4rem; }
+.rep-journal-modern .last-session ol { margin: 0; padding-inline-start: 1.25rem; }
+.rep-journal-modern .last-session button { justify-self: start; }
+.rep-journal-modern .context-preview textarea { font-family: var(--font-monospace, ui-monospace, monospace); font-size: .86rem; }
+.rep-journal-modern [hidden] { display: none !important; }
+
+@container (max-width: 560px) {
+  .rep-journal-modern .masthead-content { flex-wrap: wrap; }
+  .rep-journal-modern .masthead nav { justify-content: flex-start; }
 }
 
-.rep-journal-set-form > button[type='submit'] {
-  width: 100%;
-}
-
-.rep-journal-set-form,
-.rep-journal-previous,
-.rep-journal-issues {
-  margin-top: var(--size-4-3);
-}
-
-.rep-journal-previous > p {
-  margin: 0;
-}
-
-.rep-journal-previous ul,
-.rep-journal-history ol {
-  padding-inline-start: var(--size-4-5);
-}
-
-.rep-journal-set-list {
-  padding-inline-start: var(--size-4-5);
-  margin-top: 0;
-}
-
-.rep-journal-set-list > li {
-  margin-bottom: var(--size-4-2);
-}
-
-.rep-journal .rep-journal-set-row {
-  display: grid;
-  justify-content: start;
-  justify-items: start;
-  gap: var(--size-2-1);
-  width: 100%;
-  height: auto;
-  min-height: var(--input-height);
-  white-space: normal;
-  overflow-wrap: anywhere;
-  text-align: start;
-}
-
-.rep-journal-muted,
-.rep-journal-status {
-  color: var(--text-muted);
-  font-size: var(--font-ui-small);
-  overflow-wrap: anywhere;
-}
-
-.rep-journal-status {
-  margin: var(--size-4-2) 0 0;
-}
-
-.rep-journal-status:empty {
-  margin: 0;
-}
-
-.rep-journal-chart {
-  display: block;
-  width: 100%;
-  height: 14rem;
-}
-
-.rep-journal-chart-detail {
-  margin-bottom: 0;
-}
-
-.rep-journal-history {
-  padding-block: var(--size-4-2);
-  border-bottom: 1px solid var(--background-modifier-border);
-}
-
-.rep-journal-history:last-child {
-  border-bottom: 0;
-}
-
-.rep-journal-fields {
-  min-width: 0;
-  border: 0;
-  padding: 0;
-  margin: 0 0 var(--size-4-3);
-}
-
-.rep-journal-tag-filters,
-.rep-journal-exercise-tags {
-  padding: var(--size-4-2) var(--size-4-3);
-}
-
-.rep-journal-tag-filters[open] {
-  max-height: 35vh;
-  overflow: auto;
-}
-
-.rep-journal-tag-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--size-4-2) var(--size-4-4);
-  min-width: 0;
-  margin: var(--size-4-2) 0;
-  padding: var(--size-4-2);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-}
-
-.rep-journal-tag-group > label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--size-4-1);
-}
-
-.rep-journal-context {
-  width: 100%;
-  min-height: 15rem;
-  resize: vertical;
-  font-family: var(--font-monospace);
-}
-
-@media (pointer: coarse) {
-  .rep-journal button,
-  .rep-journal-set-form > button[type='submit'],
-  .rep-journal-field > input,
-  .rep-journal-field > select {
-    min-height: 44px;
-  }
+@container (max-width: 360px) {
+  .rep-journal-modern .masthead-content, .rep-journal-modern .rj-workspace { padding-inline: .68rem; }
+  .rep-journal-modern .masthead nav { gap: .2rem; }
+  .rep-journal-modern .masthead nav button { padding-inline: .48rem; }
+  .rep-journal-modern .wordmark { font-size: 1.1rem; }
 }

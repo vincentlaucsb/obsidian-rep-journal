@@ -6,8 +6,9 @@ export default defineConfig(
     'node_modules/**', 'main.js', 'esbuild.config.mjs', 'package.json',
     'package-lock.json', 'tsconfig.json', 'versions.json',
   ]),
-  ...obsidianmd.configs.recommended,
+  ...obsidianmd.configs.recommended.map((config) => ({ ...config, ignores: [...(config.ignores ?? []), 'standalone/**'] })),
   {
+    ignores: ['standalone/**'],
     languageOptions: {
       parserOptions: {
         projectService: { allowDefaultProject: ['eslint.config.mjs', 'manifest.json'] },
@@ -23,10 +24,19 @@ export default defineConfig(
     },
   },
   {
-    files: ['src/import-cli.ts', 'src/import-vault.ts', 'tests/**/*.ts'],
+    files: ['src/import-cli.ts', 'src/import-vault.ts', 'src/standalone-*.ts', 'tests/**/*.ts'],
     rules: {
       // These files run under Node and are outside the mobile plugin bundle.
       'obsidianmd/no-nodejs-modules': 'off',
     },
+  },
+  {
+    files: ['standalone/**/*.js'],
+    languageOptions: { globals: { crypto: 'readonly', document: 'readonly', fetch: 'readonly', localStorage: 'readonly' } },
+    rules: { 'no-dupe-keys': 'error', 'no-undef': 'error', 'no-unreachable': 'error', 'no-unused-vars': 'error' },
+  },
+  {
+    files: ['tests/standalone.test.ts'],
+    rules: { 'no-restricted-globals': 'off' },
   },
 );
