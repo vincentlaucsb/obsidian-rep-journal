@@ -2,6 +2,7 @@ import { FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab, Sett
 import { errorMessage, isRecord, isUnit, type ExerciseNote, type WeightUnit } from './model.ts';
 import { MODERN_JOURNAL_VIEW, ModernJournalView, type JournalScreen } from './modern-journal-view.ts';
 import { createObsidianJournalAdapter } from './obsidian-journal-adapter.ts';
+import { drawObsidianStrengthChart } from './obsidian-strength-chart.ts';
 import { LedgerRepository } from './repository.ts';
 
 const legacyView = 'set-ledger-workout-view';
@@ -28,13 +29,21 @@ export default class RepJournalPlugin extends Plugin {
       reportExportError: (error) => { new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`); },
       openExerciseNote: (exercise) => { void this.openExerciseNote(exercise); },
     });
-    const createJournalView = (leaf: WorkspaceLeaf): ModernJournalView => new ModernJournalView(leaf, adapter, this.manifest.name);
+    const createJournalView = (leaf: WorkspaceLeaf): ModernJournalView =>
+      new ModernJournalView(leaf, { ...adapter, drawStrengthChart: drawObsidianStrengthChart }, this.manifest.name);
     this.registerView(MODERN_JOURNAL_VIEW, createJournalView);
     // Restore saved layouts from the Set Ledger preview using the shared journal.
     this.registerView(legacyView, createJournalView);
     this.addSettingTab(new RepJournalSettings(this));
     this.addRibbonIcon('dumbbell', 'Open workout log', () => { void this.openModern(); });
     this.addCommand({ id: 'open-workout-log', name: 'Open workout log', callback: () => { void this.openModern(); } });
+    this.addCommand({
+      id: 'refresh-workout-log', name: 'Refresh workout log', callback: () => {
+        const view = this.app.workspace.getActiveViewOfType(ModernJournalView);
+        if (view) void view.refresh();
+        else void this.openView((journal) => journal.refresh());
+      },
+    });
     this.addCommand({ id: 'open-exercise-progress', name: 'Open exercise progress', callback: () => { void this.openModern('progress'); } });
     this.addCommand({ id: 'open-workout-export', name: 'Open workout export', callback: () => { void this.openModern('export'); } });
     this.addCommand({

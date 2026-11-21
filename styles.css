@@ -1,5 +1,6 @@
 /* Shared by Obsidian and the standalone app. */
 body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
+.rep-journal-modern-view > .view-header { display: none; }
 .rep-journal-modern-content { padding: 0; }
 .rep-journal-modern.rep-journal-standalone { min-height: 100dvh; }
 
@@ -138,6 +139,20 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .manage-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem; }
 .rep-journal-modern .progress-heading { display: grid; gap: .16rem; }
 .rep-journal-modern .progress-heading h2 { font-size: 1.3rem; overflow-wrap: anywhere; }
+.rep-journal-modern .strength-chart { display: grid; gap: .55rem; min-width: 0; }
+.rep-journal-modern .strength-chart-ranges { display: flex; flex-wrap: wrap; gap: .35rem; }
+.rep-journal-modern .strength-chart-ranges button { padding-inline: .55rem; font-size: .84rem; }
+.rep-journal-modern .strength-chart-ranges button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.rep-journal-modern .strength-chart-plot:empty { display: none; }
+.rep-journal-modern .strength-chart-plot > svg { display: block; width: 100%; height: auto; }
+.rep-journal-modern .strength-chart-plot text { fill: var(--text); font-family: Arial, sans-serif; }
+.rep-journal-modern .strength-chart-plot :is(.axis-line, .tick-line) { stroke: var(--muted); }
+.rep-journal-modern .strength-chart-plot .grid-line { stroke: var(--border); }
+.rep-journal-modern .strength-chart-plot .line-series { fill: none; stroke: var(--accent); }
+.rep-journal-modern .strength-chart-plot .line-marker { fill: var(--accent); cursor: pointer; }
+.rep-journal-modern .strength-chart-plot .line-marker.is-selected { stroke: var(--accent); stroke-width: 2; }
+.rep-journal-modern .strength-chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.rep-journal-modern .strength-chart-detail { color: var(--muted); font-variant-numeric: tabular-nums; }
 .rep-journal-modern .progress-history, .rep-journal-modern .context-preview { display: grid; gap: .6rem; min-width: 0; }
 .rep-journal-modern .progress-session { font-variant-numeric: tabular-nums; }
 .rep-journal-modern .progress-session summary, .rep-journal-modern .exercise-filters summary { cursor: pointer; font-weight: 600; }

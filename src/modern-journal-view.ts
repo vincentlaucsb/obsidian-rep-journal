@@ -10,7 +10,6 @@ export class ModernJournalView extends ItemView {
 
   constructor(leaf: WorkspaceLeaf, private readonly adapter: JournalAdapter, private readonly name: string) {
     super(leaf);
-    this.addAction('refresh-cw', 'Refresh workout log', () => { void this.refresh(); });
   }
 
   getViewType(): string { return MODERN_JOURNAL_VIEW; }
@@ -18,6 +17,7 @@ export class ModernJournalView extends ItemView {
   getIcon(): string { return 'dumbbell'; }
 
   async onOpen(): Promise<void> {
+    this.containerEl.addClass('rep-journal-modern-view');
     this.contentEl.empty();
     this.contentEl.addClass('rep-journal-modern-content');
     this.journal = mountJournal(this.contentEl.createDiv(), this.adapter);
@@ -32,6 +32,7 @@ export class ModernJournalView extends ItemView {
   onClose(): Promise<void> {
     this.journal?.dispose();
     this.journal = undefined;
+    this.containerEl.removeClass('rep-journal-modern-view');
     this.contentEl.removeClass('rep-journal-modern-content');
     this.contentEl.empty();
     return Promise.resolve();
@@ -53,7 +54,7 @@ export class ModernJournalView extends ItemView {
 
   setWeightUnit(unit: WeightUnit): void { this.journal?.setWeightUnit(unit); }
 
-  private async refresh(): Promise<void> {
+  async refresh(): Promise<void> {
     await this.reload(true);
     await this.refreshAutomaticCsv();
   }

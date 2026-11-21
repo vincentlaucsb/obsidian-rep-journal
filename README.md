@@ -22,7 +22,9 @@ Use **Edit set** to correct or delete a set in any session, and **Workout notes*
 
 ## Progress and export
 
-In either app, **Progress** lists your recorded sets by session and shows an estimated 1RM for sessions with an eligible strength set. Search by exercise name or alias and filter by grouped tags. **Edit exercise** opens the exercise settings. Historical sets keep their logged units.
+In either app, **Progress** charts estimated 1RM by calendar date for sessions with an eligible strength set. It starts with the past year. Use **1W**, **1M**, **3M**, **6M**, **1Y**, or **Max** to change the chart range. Select a point or use **Previous** and **Next** to see the date, estimate and recorded set. Exercise history lists all recorded sets and keeps their logged units. Search by exercise name or alias and filter by grouped tags. **Edit exercise** opens the exercise settings.
+
+The 1RM chart uses [svgplot-wasm](https://www.npmjs.com/package/svgplot-wasm). Obsidian bundles the renderer in the plugin and the standalone app serves it locally.
 
 **Export CSV** and **Export JSON** save dated copies in the vault's `Exports` folder under `Rep Journal` or `Set Ledger`. The fixed `rep-journal.csv` updates when you log or edit training data. Use **Refresh automatic CSV** to update it after external changes. **Prepare workout context** previews a date-filtered snapshot for your preferred LLM. You can add a training goal, equipment, days per week, and opt in to including workout notes before copying.
 
@@ -40,7 +42,7 @@ Use the [command-line JSON importer](docs/IMPORT.md) to bring in workouts from F
 
 Exercise definitions are Markdown notes in `Rep Journal/Exercises`. Workouts are versioned JSON files in `Rep Journal/Workouts`. Vaults that used the Set Ledger preview can keep their existing `Set Ledger` folder. The plugin and standalone app process these files locally.
 
-With Obsidian Sync, enable **Sync all other types** on each device so workouts travel with your exercise notes. Use **Refresh workout log** in Today’s view header to load changes after sync and update the automatic CSV. Obsidian Sync uses the latest modified version when a JSON file has conflicting edits. Enable **Show all file types** in Files and links to see exports in Obsidian’s file explorer. See [Obsidian Sync settings](https://obsidian.md/help/sync/settings) and the [data format](docs/DATA.md).
+With Obsidian Sync, enable **Sync all other types** on each device so workouts travel with your exercise notes. Run **Refresh workout log** from Obsidian’s command palette to load changes after sync and update the automatic CSV. Obsidian Sync uses the latest modified version when a JSON file has conflicting edits. Enable **Show all file types** in Files and links to see exports in Obsidian’s file explorer. See [Obsidian Sync settings](https://obsidian.md/help/sync/settings) and the [data format](docs/DATA.md).
 
 ## Install a local build
 

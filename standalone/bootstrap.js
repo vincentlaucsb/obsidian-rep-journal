@@ -24,6 +24,7 @@ mountJournal(root, {
   saveExercise: (input) => post('/api/exercises', input),
   addStarter: (starterId) => post('/api/exercises', { starterId }),
   readProgress: (id) => request(id ? `/api/progress?exercise=${encodeURIComponent(id)}` : '/api/progress'),
+  drawStrengthChart: async (host, options) => (await import('./svgplot/charts.js')).lineChart(host, options),
   saveExport: async (format) => (await post('/api/exports', { format })).path,
   refreshAutomaticCsv: async () => { await post('/api/exports', { format: 'automatic-csv' }); },
   readAutomaticCsvError: async () => (await request('/api/exports')).automaticCsvError,

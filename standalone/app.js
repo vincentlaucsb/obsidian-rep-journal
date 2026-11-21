@@ -1,4 +1,5 @@
 import { WorkoutNoteDrafts } from './drafts.js';
+import { mountStrengthChart } from './strength-chart.js';
 import { convertDistance, convertWeight } from './units.js';
 
 export function mountJournal(root, adapter) {
@@ -8,6 +9,7 @@ export function mountJournal(root, adapter) {
   let mounted = true;
   let refreshVersion = 0;
   let progressVersion = 0;
+  let disposeStrengthChart;
   root.classList.add('rep-journal-modern');
   const state = { journal: null, date: null, selected: null, newSession: false, screen: 'log', active: null, review: null, saving: false };
   const progress = { report: null, exerciseId: null, search: '', tags: new Set(), error: '' };
@@ -92,6 +94,8 @@ export function mountJournal(root, adapter) {
   }
 
   function render() {
+    disposeStrengthChart?.();
+    disposeStrengthChart = undefined;
     if (!mounted) return;
     navigation.replaceChildren();
     app.replaceChildren();
@@ -113,7 +117,15 @@ export function mountJournal(root, adapter) {
     if (state.screen === 'edit-set') app.append(renderSetEditor());
     if (state.screen === 'exercises') app.append(renderExercises());
     if (state.screen === 'edit-exercise') app.append(renderExerciseEditor());
-    if (state.screen === 'progress') app.append(renderProgress());
+    if (state.screen === 'progress') {
+      const page = renderProgress();
+      app.append(page);
+      const chart = page.querySelector('.strength-chart');
+      if (chart && adapter.drawStrengthChart) {
+        const { trend, unit } = progress.report;
+        disposeStrengthChart = mountStrengthChart(chart, trend, unit, state.journal.today, adapter.drawStrengthChart);
+      }
+    }
     if (state.screen === 'export') app.append(renderExport());
   }
 
@@ -464,7 +476,7 @@ export function mountJournal(root, adapter) {
     } else if (!progress.report) {
       page.append(el('p', { role: 'status' }, 'Loading exercise history…'));
     } else if (progress.report.selected) {
-      const { selected, sessions, unit } = progress.report;
+      const { selected, sessions, trend, unit } = progress.report;
       const note = state.journal.exercises.find(({ id }) => id === selected.id);
       const controls = el('div', { class: 'plan-controls' }, button('Choose exercise', () => openProgress(null)));
       if (note) {
@@ -474,6 +486,10 @@ export function mountJournal(root, adapter) {
       const label = selected.missingNote ? 'Exercise note missing' : (selected.archived ? 'Archived' : '');
       page.append(controls, el('div', { class: 'progress-heading' }, el('h2', {}, selected.name),
         label ? el('p', { class: 'secondary' }, label) : undefined));
+      if (trend.length && adapter.drawStrengthChart) {
+        page.append(el('section', { class: 'strength-chart', 'aria-label': 'Estimated 1RM chart' },
+          el('h3', {}, 'Estimated 1RM')));
+      }
       const history = el('section', { class: 'progress-history', 'aria-label': 'Exercise history' }, el('h3', {}, 'Exercise history'));
       if (!sessions.length) history.append(el('p', { class: 'empty' }, 'No sets recorded for this exercise.'));
       for (const [index, { date, number, sets, estimatedMax }] of sessions.entries()) {
@@ -1081,6 +1097,7 @@ export function mountJournal(root, adapter) {
     },
     dispose() {
       mounted = false;
+      disposeStrengthChart?.();
       root.replaceChildren();
       root.classList.remove('rep-journal-modern');
     },

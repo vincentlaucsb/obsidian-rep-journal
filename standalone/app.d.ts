@@ -1,3 +1,4 @@
+import type { LineChartOptions } from 'svgplot-wasm';
 import type { ExerciseChoice, ExerciseNote, LedgerData, WeightUnit, WorkoutFile } from '../src/model.ts';
 import type { ContextOptions, ExportFormat } from '../src/exports.ts';
 import type { exerciseProgress, ExerciseEditInput, LogSetInput, PlanNote, WorkoutEditInput } from '../src/journal-workflow.ts';
@@ -13,6 +14,7 @@ export interface JournalAdapter {
   saveExercise(input: ExerciseEditInput, unit: WeightUnit): Promise<ExerciseNote>;
   addStarter(id: string): Promise<ExerciseNote>;
   readProgress(exerciseId: string | null): Promise<ReturnType<typeof exerciseProgress>>;
+  drawStrengthChart?(host: HTMLElement, options: LineChartOptions): Promise<SVGSVGElement>;
   saveExport(format: ExportFormat): Promise<string>;
   refreshAutomaticCsv(): Promise<void>;
   readAutomaticCsvError?(): Promise<string | undefined>;

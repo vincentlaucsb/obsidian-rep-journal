@@ -75,7 +75,7 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.equal(saved.path, `Rep Journal/Workouts/${journal.today}.json`);
   assert.equal((await post(payload)).status, 200);
   const append = await post({ ...payload, workoutId: saved.workout.id, setId: makeId(), exerciseId: rowId });
-  assert.equal(append.status, 200);
+  assert.equal(append.status, 200, append.ok ? undefined : await append.text());
   const another = await post({ ...payload, workoutId: null, setId: makeId() });
   assert.equal(another.status, 200);
   const second = await another.json() as { path: string };
@@ -190,9 +190,23 @@ void test('standalone progress and export use the active journal and preserve th
   const originalData = (await readImportVault(root)).data;
   assert.deepEqual(originalData.issues, []);
   assert.equal(await readFile(csvPath, 'utf8'), toCsv(originalData));
+  const page = await fetch(origin);
+  assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self' 'wasm-unsafe-eval';/);
+  assert.doesNotMatch(page.headers.get('content-security-policy') ?? '', /'unsafe-eval'|'unsafe-inline'/);
+  const binary = await fetch(`${origin}/svgplot/line-engine.wasm`);
+  assert.equal(binary.status, 200);
+  assert.equal(binary.headers.get('content-type'), 'application/wasm');
+  assert.deepEqual(new Uint8Array(await binary.arrayBuffer()).slice(0, 4), new Uint8Array([0, 97, 115, 109]));
+  for (const asset of ['charts.js', 'line.js', 'line-engine.mjs']) {
+    const response = await fetch(`${origin}/svgplot/${asset}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /^text\/javascript/);
+    assert.ok((await response.text()).length > 0);
+  }
   const report = await (await fetch(`${origin}/api/progress?exercise=${exerciseId}`)).json() as {
     selected: { aliases: string[]; archived: boolean }; unit: string; tags: unknown[];
     sessions: Array<{ id: string; number: number; sets: string[]; estimatedMax: number }>;
+    trend: Array<{ date: string; sessionId: string; number: number; value: number; set: string }>;
   };
   assert.deepEqual(report.selected.aliases, ['Bench']);
   assert.equal(report.selected.archived, true);
@@ -203,12 +217,20 @@ void test('standalone progress and export use the active journal and preserve th
     { id: early.id, number: 1, sets: ['8 reps · 88 lb'] },
   ]);
   assert.equal(report.sessions[0].estimatedMax, 50 * (1 + 5 / 30));
+  assert.deepEqual(report.trend.map(({ sessionId, date, number, set }) => ({ sessionId, date, number, set })), [
+    { sessionId: early.id, date, number: 1, set: '8 reps · 88 lb' },
+    { sessionId: later.id, date, number: 2, set: '5 reps · 50 kg' },
+  ]);
+  assert.equal(report.trend[0].value, report.sessions[1].estimatedMax);
+  assert.equal(report.trend[1].value, report.sessions[0].estimatedMax);
   const missing = await (await fetch(`${origin}/api/progress?exercise=${missingId}`)).json() as {
     selected: { name: string; missingNote: boolean }; sessions: Array<{ sets: string[] }>;
+    trend: unknown[];
   };
   assert.equal(missing.selected.name, 'Historic carry');
   assert.equal(missing.selected.missingNote, true);
   assert.deepEqual(missing.sessions[0].sets, ['20 yd']);
+  assert.deepEqual(missing.trend, []);
 
   const post = (route: string, body: unknown, source = origin) => fetch(`${origin}/api/${route}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: source }, body: JSON.stringify(body),

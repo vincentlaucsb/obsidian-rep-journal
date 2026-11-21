@@ -23,14 +23,19 @@ const assets = new Map([
   ['/bootstrap.js', { file: 'standalone/bootstrap.js', type: 'text/javascript' }],
   ['/drafts.js', { file: 'standalone/drafts.js', type: 'text/javascript' }],
   ['/units.js', { file: 'standalone/units.js', type: 'text/javascript' }],
+  ['/strength-chart.js', { file: 'standalone/strength-chart.js', type: 'text/javascript' }],
+  ['/svgplot/charts.js', { file: 'node_modules/svgplot-wasm/charts.js', type: 'text/javascript' }],
+  ['/svgplot/line.js', { file: 'node_modules/svgplot-wasm/line.js', type: 'text/javascript' }],
+  ['/svgplot/line-engine.mjs', { file: 'node_modules/svgplot-wasm/line-engine.mjs', type: 'text/javascript' }],
+  ['/svgplot/line-engine.wasm', { file: 'node_modules/svgplot-wasm/line-engine.wasm', type: 'application/wasm' }],
   ['/style.css', { file: 'styles.css', type: 'text/css' }],
 ]);
 
 function send(response: ServerResponse, status: number, type: string, content: string | Buffer): void {
   response.writeHead(status, {
-    'Content-Type': `${type}; charset=utf-8`,
+    'Content-Type': type === 'application/wasm' ? type : `${type}; charset=utf-8`,
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'",
+    'Content-Security-Policy': "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'",
     'X-Content-Type-Options': 'nosniff',
     'Cross-Origin-Resource-Policy': 'same-origin',
   });
