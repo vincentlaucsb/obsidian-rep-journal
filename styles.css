@@ -170,6 +170,33 @@
   margin: 0 0 var(--size-4-3);
 }
 
+.rep-journal-tag-filters,
+.rep-journal-exercise-tags {
+  padding: var(--size-4-2) var(--size-4-3);
+}
+
+.rep-journal-tag-filters[open] {
+  max-height: 35vh;
+  overflow: auto;
+}
+
+.rep-journal-tag-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2) var(--size-4-4);
+  min-width: 0;
+  margin: var(--size-4-2) 0;
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.rep-journal-tag-group > label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--size-4-1);
+}
+
 .rep-journal-context {
   width: 100%;
   min-height: 15rem;

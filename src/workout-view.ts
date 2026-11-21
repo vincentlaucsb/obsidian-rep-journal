@@ -1,29 +1,24 @@
 import { Modal, Notice, type App } from 'obsidian';
-import { exerciseHistory } from './analytics.ts';
+import { convertDistance, convertWeight, exerciseHistory } from './analytics.ts';
 import { type NoteDraft } from './drafts.ts';
 import {
-  compareWorkouts, describeSet, errorMessage, isDate, isLoadMode, isUnit, loadModes, makeId, validateSet,
-  type ExerciseNote, type LedgerData, type LoadMode, type SetLoad, type WeightUnit, type Workout, type WorkoutChange,
-  type WorkoutFile, type WorkoutSet,
+  compareWorkouts, describeSet, errorMessage, formatDuration, isDate, makeId, parseDuration, setMeasurements, validateSet,
+  type DistanceUnit, type ExerciseNote, type LedgerData, type Measurement, type SetLoad, type WeightUnit, type Workout,
+  type WorkoutChange, type WorkoutFile, type WorkoutSet,
 } from './model.ts';
 import { actionButton, addOption, labeledInput, labeledSelect } from './ui-controls.ts';
 
-interface SetFields {
-  load: SetLoad;
-  reps: number;
-  warmup: boolean;
-}
+type SetFields = Pick<WorkoutSet, 'reps' | 'load' | 'durationSeconds' | 'distance'>;
 
 export interface SetDraft {
-  mode: LoadMode;
-  unit: WeightUnit;
-  weight: string;
-  reps: string;
-  warmup: boolean;
+  values: Partial<Record<Measurement, string>>;
+  weightUnit: WeightUnit;
+  distanceUnit: DistanceUnit;
 }
 
 interface SetFormOptions {
   exercise?: ExerciseNote;
+  weightUnit: WeightUnit;
   submitText: string;
   onSave: (fields: SetFields) => Promise<void>;
   initial?: WorkoutSet;
@@ -33,72 +28,78 @@ interface SetFormOptions {
 
 function setForm(parent: HTMLElement, options: SetFormOptions): (set: WorkoutSet) => void {
   const { exercise, initial, draft, onSave, onDraft, submitText } = options;
+  const tracked = initial ? setMeasurements(initial) : (exercise?.measurements ?? []);
+  const loadMode = initial?.load?.mode ?? exercise?.loadMode ?? 'weight';
+  const weightMode = loadMode === 'bodyweight' ? 'weight' : loadMode;
+  const weightUnit = initial?.load && initial.load.mode !== 'bodyweight' ? initial.load.unit : options.weightUnit;
+  const distanceUnit = initial?.distance?.unit ?? exercise?.distanceUnit ?? 'm';
   const form = parent.createEl('form', { cls: 'rep-journal-set-form' });
   const fields = form.createDiv({ cls: 'rep-journal-form-grid' });
-  const mode = labeledSelect(fields, 'Load type');
-  for (const option of loadModes) addOption(mode, option.value, option.label);
-  mode.value = exercise?.loadMode ?? 'weight';
-  const unit = labeledSelect(fields, 'Unit');
-  addOption(unit, 'lb', 'lb');
-  addOption(unit, 'kg', 'kg');
-  unit.value = exercise?.unit ?? 'lb';
-  const weight = labeledInput(fields, 'Weight', { type: 'number', min: '0', step: 'any', inputmode: 'decimal' });
-  const reps = labeledInput(fields, 'Reps', { type: 'number', min: '1', max: '1000', step: '1', inputmode: 'numeric', required: '' });
-  const warmupLabel = form.createEl('label', { cls: 'rep-journal-check' });
-  const warmup = warmupLabel.createEl('input', { attr: { type: 'checkbox' } });
-  warmupLabel.createSpan({ text: 'Warm-up set' });
+  const weightName = weightMode === 'assistance' ? 'Assistance' : weightMode === 'added' ? 'Added weight' : 'Weight';
+  const weight = tracked.includes('weight') ? labeledInput(fields, `${weightName} (${weightUnit})`, {
+    type: 'number', min: '0', max: '100000', step: 'any', inputmode: 'decimal', required: '',
+  }) : undefined;
+  const reps = tracked.includes('reps') ? labeledInput(fields, 'Reps', {
+    type: 'number', min: '1', max: '1000', step: '1', inputmode: 'numeric', required: '',
+  }) : undefined;
+  const time = tracked.includes('time') ? labeledInput(fields, 'Time', {
+    type: 'text', placeholder: 'mm:ss', 'aria-label': 'Time (mm:ss or seconds)', required: '',
+  }) : undefined;
+  const distance = tracked.includes('distance') ? labeledInput(fields, `Distance (${distanceUnit})`, {
+    type: 'number', min: '0', step: 'any', inputmode: 'decimal', required: '',
+  }) : undefined;
   const submit = form.createEl('button', { cls: 'mod-cta', text: submitText, attr: { type: 'submit' } });
   const status = form.createEl('p', { cls: 'rep-journal-status', attr: { role: 'status' } });
 
   const remember = (): void => {
-    if (onDraft && isLoadMode(mode.value) && isUnit(unit.value)) {
-      onDraft({ mode: mode.value, unit: unit.value, weight: weight.value, reps: reps.value, warmup: warmup.checked });
-    }
+    onDraft?.({
+      values: { weight: weight?.value, reps: reps?.value, time: time?.value, distance: distance?.value },
+      weightUnit, distanceUnit,
+    });
   };
 
-  const updateLoadField = (): void => {
-    const weighted = mode.value !== 'bodyweight';
-    if (weight.parentElement) weight.parentElement.hidden = !weighted;
-    if (unit.parentElement) unit.parentElement.hidden = !weighted;
-    weight.required = weighted;
-    weight.disabled = !weighted;
-    unit.disabled = !weighted;
-  };
   const fillFrom = (set: WorkoutSet): void => {
-    mode.value = set.load.mode;
-    if (set.load.mode !== 'bodyweight') {
-      weight.value = String(set.load.value);
-      unit.value = set.load.unit;
+    if (weight && set.load?.mode === weightMode) {
+      const value = convertWeight(set.load.value, set.load.unit, weightUnit);
+      weight.value = numberForInput(value, set.load.unit === weightUnit);
     }
-    reps.value = String(set.reps);
-    warmup.checked = set.warmup;
-    updateLoadField();
+    if (reps && set.reps !== undefined) reps.value = String(set.reps);
+    if (time && set.durationSeconds !== undefined) time.value = formatDuration(set.durationSeconds);
+    if (distance && set.distance) {
+      const value = convertDistance(set.distance.value, set.distance.unit, distanceUnit);
+      distance.value = numberForInput(value, set.distance.unit === distanceUnit);
+    }
     remember();
   };
 
   if (initial) fillFrom(initial);
   if (draft) {
-    mode.value = draft.mode;
-    unit.value = draft.unit;
-    weight.value = draft.weight;
-    reps.value = draft.reps;
-    warmup.checked = draft.warmup;
+    const values = draft.values;
+    if (weight && values.weight) {
+      weight.value = numberForInput(convertWeight(Number(values.weight), draft.weightUnit, weightUnit), draft.weightUnit === weightUnit);
+    }
+    if (reps) reps.value = values.reps ?? '';
+    if (time) time.value = values.time ?? '';
+    if (distance && values.distance) {
+      distance.value = numberForInput(
+        convertDistance(Number(values.distance), draft.distanceUnit, distanceUnit), draft.distanceUnit === distanceUnit,
+      );
+    }
   }
-  updateLoadField();
-  mode.addEventListener('change', updateLoadField);
   form.addEventListener('input', remember);
-  form.addEventListener('change', remember);
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     if (submit.disabled) return;
-    const loadMode = mode.value;
-    if (!isLoadMode(loadMode) || !isUnit(unit.value)) return;
-    const load: SetLoad = loadMode === 'bodyweight'
-      ? { mode: loadMode }
-      : { mode: loadMode, value: weight.valueAsNumber, unit: unit.value };
+    const values: SetFields = {};
+    const load: SetLoad | undefined = weight ? { mode: weightMode, value: weight.valueAsNumber, unit: weightUnit }
+      : initial ? initial.load : tracked.length === 1 && reps ? { mode: 'bodyweight' } : undefined;
+    if (load) values.load = load;
+    if (reps) values.reps = reps.valueAsNumber;
+    if (time) values.durationSeconds = parseDuration(time.value);
+    if (distance) values.distance = { value: distance.valueAsNumber, unit: distanceUnit };
     submit.disabled = true;
     status.setText('');
-    void onSave({ load, reps: reps.valueAsNumber, warmup: warmup.checked }).then(() => {
+    void onSave(values).then(() => {
       status.setText(initial ? 'Set updated.' : 'Set logged.');
       submit.disabled = false;
     }, (error: unknown) => {
@@ -107,6 +108,10 @@ function setForm(parent: HTMLElement, options: SetFormOptions): (set: WorkoutSet
     });
   });
   return fillFrom;
+}
+
+function numberForInput(value: number, unchangedUnit: boolean): string {
+  return String(unchangedUnit ? value : Number(value.toPrecision(12)));
 }
 
 class EditSetDialog extends Modal {
@@ -123,7 +128,7 @@ class EditSetDialog extends Modal {
     this.setTitle('Edit set');
     this.contentEl.createEl('p', { text: this.exercise?.name ?? this.set.exerciseName });
     setForm(this.contentEl, {
-      exercise: this.exercise, submitText: 'Save changes', initial: this.set,
+      exercise: this.exercise, weightUnit: 'lb', submitText: 'Save changes', initial: this.set,
       onSave: async (fields) => {
         await this.save({ kind: 'edit', original: this.set, set: validateSet({ ...this.set, ...fields }) });
         this.close();
@@ -158,6 +163,7 @@ interface WorkoutViewOptions {
   exercise?: ExerciseNote;
   session?: WorkoutFile;
   data: LedgerData;
+  weightUnit: WeightUnit;
   noteDraft?: NoteDraft;
   setDraft?: SetDraft;
   onNoteDraft: (workoutId: string | null, draft: NoteDraft) => void;
@@ -249,9 +255,12 @@ export function renderWorkoutView(parent: HTMLElement, options: WorkoutViewOptio
     previous.createEl('h3', { text: 'Last session' });
     previous.createEl('p', { text: last.workout.date, cls: 'rep-journal-muted' });
     const list = previous.createEl('ul');
-    for (const set of last.sets) list.createEl('li', { text: `${describeSet(set)}${set.warmup ? ' · warm-up' : ''}` });
-    const reusable = [...last.sets].reverse().find((set) => !set.warmup) ?? last.sets[last.sets.length - 1];
-    actionButton(previous, 'Use last set', () => fillFrom?.(reusable));
+    for (const set of last.sets) list.createEl('li', { text: describeSet(set) });
+    const reusable = last.sets[last.sets.length - 1];
+    const reusableMeasurements = setMeasurements(reusable);
+    if (exercise.measurements.some((measurement) => reusableMeasurements.includes(measurement))) {
+      actionButton(previous, 'Use last set', () => fillFrom?.(reusable));
+    }
   }
 
   function isEarlier(candidate: Workout): boolean {
@@ -275,7 +284,7 @@ export function renderWorkoutView(parent: HTMLElement, options: WorkoutViewOptio
         if (!saving) options.openModal(new EditSetDialog(app, set, entry, async (change) => { await persist(change); }));
       });
       button.addClass('rep-journal-set-row');
-      button.createSpan({ text: `${describeSet(set)}${set.warmup ? ' · warm-up' : ''}`, cls: 'rep-journal-muted' });
+      button.createSpan({ text: describeSet(set), cls: 'rep-journal-muted' });
     }
   }
 
@@ -309,9 +318,9 @@ export function renderWorkoutView(parent: HTMLElement, options: WorkoutViewOptio
   drawPrevious();
   if (exercise) {
     fillFrom = setForm(logger, {
-      exercise, submitText: 'Log set', draft: options.setDraft, onDraft: options.onSetDraft,
+      exercise, weightUnit: options.weightUnit, submitText: 'Log set', draft: options.setDraft, onDraft: options.onSetDraft,
       onSave: async (fields) => {
-        const set = validateSet({ id: makeId(), exerciseId: exercise.id, exerciseName: exercise.name, ...fields });
+        const set = validateSet({ id: makeId(), exerciseId: exercise.id, exerciseName: exercise.name, warmup: false, ...fields });
         await persist({ kind: 'add', set });
       },
     });

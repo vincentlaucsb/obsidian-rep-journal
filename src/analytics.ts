@@ -1,4 +1,7 @@
-import { compareWorkouts, type ExerciseChoice, type LedgerData, type WeightUnit, type Workout, type WorkoutSet } from './model.ts';
+import {
+  compareWorkouts, setMeasurements, type DistanceUnit, type ExerciseChoice, type LedgerData, type WeightUnit,
+  type Workout, type WorkoutSet,
+} from './model.ts';
 
 export interface ExerciseSession {
   workout: Workout;
@@ -13,10 +16,16 @@ export interface StrengthPoint {
 }
 
 const KG_PER_LB = 0.45359237;
+const METERS_PER_UNIT: Record<DistanceUnit, number> = { m: 1, km: 1000, mi: 1609.344, yd: 0.9144, ft: 0.3048 };
 
 export function convertWeight(value: number, from: WeightUnit, to: WeightUnit): number {
   if (from === to) return value;
   return from === 'lb' ? value * KG_PER_LB : value / KG_PER_LB;
+}
+
+export function convertDistance(value: number, from: DistanceUnit, to: DistanceUnit): number {
+  if (from === to) return value;
+  return value * (METERS_PER_UNIT[from] / METERS_PER_UNIT[to]);
 }
 
 export function exerciseHistory(workouts: Workout[], exerciseId: string): ExerciseSession[] {
@@ -34,7 +43,9 @@ export function progressExercises(data: LedgerData): ExerciseChoice[] {
       if (catalog.has(set.exerciseId)) continue;
       catalog.set(set.exerciseId, {
         id: set.exerciseId, name: set.exerciseName, aliases: [], equipment: '', archived: false, missingNote: true,
-        unit: set.load.mode === 'bodyweight' ? 'lb' : set.load.unit,
+        loadMode: set.load?.mode ?? 'bodyweight',
+        unit: set.load && set.load.mode !== 'bodyweight' ? set.load.unit : 'lb',
+        measurements: setMeasurements(set), distanceUnit: set.distance?.unit ?? 'm', tags: [],
       });
     }
   }
@@ -58,7 +69,7 @@ export function workoutExercises(data: LedgerData): ExerciseChoice[] {
 }
 
 export function estimatedMax(set: WorkoutSet, unit: WeightUnit): number | null {
-  if (set.warmup || set.load.mode !== 'weight' || set.load.value <= 0 || set.reps > 10) return null;
+  if (set.load?.mode !== 'weight' || set.load.value <= 0 || set.reps === undefined || set.reps > 10) return null;
   const weight = convertWeight(set.load.value, set.load.unit, unit);
   return set.reps === 1 ? weight : weight * (1 + set.reps / 30);
 }

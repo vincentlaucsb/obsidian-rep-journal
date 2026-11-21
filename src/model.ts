@@ -1,14 +1,28 @@
-export const SCHEMA_VERSION = 1;
+const LEGACY_SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export type WeightUnit = 'lb' | 'kg';
 export type LoadMode = 'weight' | 'bodyweight' | 'added' | 'assistance';
 
-export const loadModes: ReadonlyArray<{ value: LoadMode; label: string }> = [
-  { value: 'weight', label: 'External weight' },
-  { value: 'bodyweight', label: 'Bodyweight' },
-  { value: 'added', label: 'Added weight' },
-  { value: 'assistance', label: 'Assistance' },
-];
+export const measurements = { weight: 'Weight', reps: 'Reps', time: 'Time', distance: 'Distance' } as const;
+export type Measurement = keyof typeof measurements;
+export const distanceUnits = ['m', 'km', 'mi', 'yd', 'ft'] as const;
+export type DistanceUnit = typeof distanceUnits[number];
+export const tagGroups = {
+  region: 'Body region', role: 'Training role', muscles: 'Muscle group',
+  activity: 'Activity type', movement: 'Movement pattern', custom: 'Ungrouped',
+} as const;
+export type TagGroup = keyof typeof tagGroups;
+
+export interface ExerciseTag {
+  group: TagGroup;
+  name: string;
+}
+
+export interface SetDistance {
+  value: number;
+  unit: DistanceUnit;
+}
 
 export type SetLoad = { mode: 'bodyweight' } | {
   mode: Exclude<LoadMode, 'bodyweight'>;
@@ -23,31 +37,40 @@ export interface ExerciseDetails {
   loadMode: LoadMode;
   unit: WeightUnit;
   archived: boolean;
+  measurements?: Measurement[];
+  distanceUnit?: DistanceUnit;
+  tags?: ExerciseTag[];
 }
 
 export interface Exercise extends ExerciseDetails {
   id: string;
+  measurements: Measurement[];
+  distanceUnit: DistanceUnit;
+  tags: ExerciseTag[];
 }
 
 export interface ExerciseNote extends Exercise {
   path: string;
 }
 
-export type ExerciseChoice = Pick<Exercise, 'id' | 'name' | 'aliases' | 'equipment' | 'unit' | 'archived'> & {
+export type ExerciseChoice = Exercise & {
   missingNote?: boolean;
+  starter?: boolean;
 };
 
 export interface WorkoutSet {
   id: string;
   exerciseId: string;
   exerciseName: string;
-  reps: number;
-  load: SetLoad;
+  reps?: number;
+  load?: SetLoad;
+  durationSeconds?: number;
+  distance?: SetDistance;
   warmup: boolean;
 }
 
 export interface Workout {
-  schemaVersion: typeof SCHEMA_VERSION;
+  schemaVersion: typeof LEGACY_SCHEMA_VERSION | typeof SCHEMA_VERSION;
   id: string;
   date: string;
   createdAt: string;
@@ -117,12 +140,69 @@ export function isUnit(value: unknown): value is WeightUnit {
   return value === 'lb' || value === 'kg';
 }
 
-export function isLoadMode(value: unknown): value is LoadMode {
-  return loadModes.some((mode) => mode.value === value);
+function isLoadMode(value: unknown): value is LoadMode {
+  return value === 'weight' || value === 'bodyweight' || value === 'added' || value === 'assistance';
 }
 
 function isName(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0 && value.length <= 120 && !/[\r\n]/.test(value);
+}
+
+export function isDistanceUnit(value: unknown): value is DistanceUnit {
+  return distanceUnits.some((unit) => value === unit);
+}
+
+function isMeasurement(value: unknown): value is Measurement {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(measurements, value);
+}
+
+function isTagGroup(value: string): value is TagGroup {
+  return Object.prototype.hasOwnProperty.call(tagGroups, value);
+}
+
+export function nameKey(value: string): string {
+  return value.trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+export function tagKey(tag: ExerciseTag): string {
+  return `${tag.group}/${nameKey(tag.name)}`;
+}
+
+export function combineAliases(name: string, aliases: string[], previousName?: string): string[] {
+  const known = new Set([nameKey(name)]);
+  const result: string[] = [];
+  for (const entry of previousName ? [...aliases, previousName] : aliases) {
+    const key = nameKey(entry);
+    if (!key || known.has(key)) continue;
+    known.add(key);
+    result.push(entry.trim());
+  }
+  return result;
+}
+
+function readTags(value: unknown): ExerciseTag[] {
+  if (!Array.isArray(value)) throw new Error('Invalid exercise tags.');
+  const tags = new Map<string, ExerciseTag>();
+  for (const entry of value) {
+    if (typeof entry !== 'string') throw new Error('Invalid exercise tag.');
+    const slash = entry.indexOf('/');
+    if (slash < 1) throw new Error('Invalid exercise tag.');
+    const group = entry.slice(0, slash);
+    const name = entry.slice(slash + 1).trim();
+    if (!isTagGroup(group) || !isName(name)) throw new Error('Invalid exercise tag.');
+    const tag = { group, name };
+    tags.set(tagKey(tag), tag);
+  }
+  return [...tags.values()];
+}
+
+export function setMeasurements(set: WorkoutSet): Measurement[] {
+  const tracked: Measurement[] = [];
+  if (set.load && set.load.mode !== 'bodyweight') tracked.push('weight');
+  if (set.reps !== undefined) tracked.push('reps');
+  if (set.durationSeconds !== undefined) tracked.push('time');
+  if (set.distance !== undefined) tracked.push('distance');
+  return tracked;
 }
 
 function isLoad(value: unknown): value is SetLoad {
@@ -135,29 +215,42 @@ function isLoad(value: unknown): value is SetLoad {
 
 function isSet(value: unknown): value is WorkoutSet {
   return isRecord(value) && isId(value.id) && isId(value.exerciseId) && isName(value.exerciseName) &&
-    typeof value.reps === 'number' && Number.isInteger(value.reps) && value.reps >= 1 && value.reps <= 1000 &&
-    isLoad(value.load) && typeof value.warmup === 'boolean';
+    typeof value.warmup === 'boolean' &&
+    (value.reps === undefined || (typeof value.reps === 'number' && Number.isInteger(value.reps) && value.reps >= 1 && value.reps <= 1000)) &&
+    (value.load === undefined || isLoad(value.load)) &&
+    (value.durationSeconds === undefined ||
+      (typeof value.durationSeconds === 'number' && Number.isSafeInteger(value.durationSeconds) && value.durationSeconds > 0)) &&
+    (value.distance === undefined ||
+      (isRecord(value.distance) && isDistanceUnit(value.distance.unit) && typeof value.distance.value === 'number' &&
+        Number.isFinite(value.distance.value) && value.distance.value > 0)) &&
+    (value.reps !== undefined || (isRecord(value.load) && value.load.mode !== 'bodyweight') ||
+      value.durationSeconds !== undefined || value.distance !== undefined);
+}
+
+function fitsLegacySchema(set: WorkoutSet): boolean {
+  return set.reps !== undefined && set.load !== undefined && set.durationSeconds === undefined && set.distance === undefined;
 }
 
 export function validateSet(set: WorkoutSet): WorkoutSet {
   if (!isSet(set)) {
-    throw new Error('Enter 1 to 1000 whole reps and a valid load. Added weight and assistance must be positive.');
+    throw new Error('Enter valid measurements. Reps must be a whole number from 1 to 1000. Time and distance must be positive.');
   }
   return set;
 }
 
 export function parseWorkout(text: string): Workout {
   const value: unknown = JSON.parse(text);
-  if (!isRecord(value) || value.schemaVersion !== SCHEMA_VERSION) {
+  if (!isRecord(value) || (value.schemaVersion !== LEGACY_SCHEMA_VERSION && value.schemaVersion !== SCHEMA_VERSION)) {
     throw new Error('Unsupported workout schema.');
   }
   if (!isId(value.id) || !isDate(value.date) || !isTimestamp(value.createdAt) ||
       typeof value.notes !== 'string' || !Array.isArray(value.sets) || !value.sets.every(isSet) ||
+      (value.schemaVersion === LEGACY_SCHEMA_VERSION && !value.sets.every(fitsLegacySchema)) ||
       new Set(value.sets.map((set) => set.id)).size !== value.sets.length) {
     throw new Error('Invalid workout record.');
   }
   return {
-    schemaVersion: SCHEMA_VERSION,
+    schemaVersion: value.schemaVersion,
     id: value.id,
     date: value.date,
     createdAt: value.createdAt,
@@ -168,7 +261,7 @@ export function parseWorkout(text: string): Workout {
 
 export function createWorkout(date: string): Workout {
   if (!isDate(date)) throw new Error('Choose a valid workout date.');
-  return { schemaVersion: SCHEMA_VERSION, id: makeId(), date, createdAt: new Date().toISOString(), notes: '', sets: [] };
+  return { schemaVersion: LEGACY_SCHEMA_VERSION, id: makeId(), date, createdAt: new Date().toISOString(), notes: '', sets: [] };
 }
 
 export function compareWorkouts(a: Workout, b: Workout): number {
@@ -183,7 +276,7 @@ export function changeWorkout(workout: Workout, change: WorkoutChange): Workout 
   if (change.kind === 'add') {
     const set = validateSet(change.set);
     if (workout.sets.some((existing) => existing.id === set.id)) throw new Error('This set was already saved.');
-    return { ...workout, sets: [...workout.sets, set] };
+    return { ...workout, schemaVersion: fitsLegacySchema(set) ? workout.schemaVersion : SCHEMA_VERSION, sets: [...workout.sets, set] };
   }
 
   const index = workout.sets.findIndex((set) => set.id === change.original.id);
@@ -199,32 +292,39 @@ export function changeWorkout(workout: Workout, change: WorkoutChange): Workout 
     }
     sets[index] = validateSet(change.set);
   }
-  return { ...workout, sets };
+  const schemaVersion = change.kind === 'edit' && !fitsLegacySchema(change.set) ? SCHEMA_VERSION : workout.schemaVersion;
+  return { ...workout, schemaVersion, sets };
 }
 
-export function exerciseFrontmatter(exercise: Exercise): Record<string, unknown> {
+export function exerciseFrontmatter(exercise: ExerciseDetails & { id: string }): Record<string, unknown> {
   return {
     set_ledger_id: exercise.id,
-    set_ledger_schema: SCHEMA_VERSION,
+    set_ledger_schema: LEGACY_SCHEMA_VERSION,
     exercise_name: exercise.name,
     aliases: exercise.aliases,
-    equipment: exercise.equipment,
+    ...(exercise.equipment ? { equipment: exercise.equipment } : {}),
     load_mode: exercise.loadMode,
     weight_unit: exercise.unit,
     archived: exercise.archived,
+    exercise_measurements: exercise.measurements ?? (exercise.loadMode === 'bodyweight' ? ['reps'] : ['weight', 'reps']),
+    distance_unit: exercise.distanceUnit ?? 'm',
+    exercise_tags: (exercise.tags ?? []).map(({ group, name }) => `${group}/${name}`),
   };
 }
 
 export function readExercise(value: unknown): Exercise | null {
   if (!isRecord(value) || !Object.prototype.hasOwnProperty.call(value, 'set_ledger_id')) return null;
-  if (!isId(value.set_ledger_id) || value.set_ledger_schema !== SCHEMA_VERSION || !isName(value.exercise_name) ||
+  if (!isId(value.set_ledger_id) || value.set_ledger_schema !== LEGACY_SCHEMA_VERSION || !isName(value.exercise_name) ||
       !isLoadMode(value.load_mode) || !isUnit(value.weight_unit)) {
     throw new Error('Invalid or unsupported exercise properties.');
   }
   const aliases: unknown = value.aliases ?? [];
   const equipment: unknown = value.equipment ?? '';
   const archived: unknown = value.archived ?? false;
-  if (!Array.isArray(aliases) || !aliases.every(isName) || typeof equipment !== 'string' || typeof archived !== 'boolean') {
+  const tracked: unknown = value.exercise_measurements ?? (value.load_mode === 'bodyweight' ? ['reps'] : ['weight', 'reps']);
+  const distanceUnit: unknown = value.distance_unit ?? 'm';
+  if (!Array.isArray(aliases) || !aliases.every(isName) || typeof equipment !== 'string' || typeof archived !== 'boolean' ||
+      !isDistanceUnit(distanceUnit) || !Array.isArray(tracked) || !tracked.length || !tracked.every(isMeasurement)) {
     throw new Error('Invalid or unsupported exercise properties.');
   }
   return {
@@ -235,17 +335,40 @@ export function readExercise(value: unknown): Exercise | null {
     loadMode: value.load_mode,
     unit: value.weight_unit,
     archived,
+    measurements: [...new Set(tracked)],
+    distanceUnit,
+    tags: readTags(value.exercise_tags ?? []),
   };
 }
 
 export function describeSet(set: WorkoutSet): string {
-  const { load } = set;
-  switch (load.mode) {
-    case 'bodyweight': return `${set.reps} reps · bodyweight`;
-    case 'added': return `${set.reps} reps · +${load.value} ${load.unit}`;
-    case 'assistance': return `${set.reps} reps · ${load.value} ${load.unit} assistance`;
-    case 'weight': return `${set.reps} reps · ${load.value} ${load.unit}`;
+  const { load, reps, durationSeconds, distance } = set;
+  const parts: string[] = [];
+  if (reps !== undefined) parts.push(`${reps} ${reps === 1 ? 'rep' : 'reps'}`);
+  if (load && load.mode !== 'bodyweight') {
+    const amount = `${load.value} ${load.unit}`;
+    if (load.mode === 'added') parts.push(`+${amount}`);
+    else if (load.mode === 'assistance') parts.push(`${amount} assistance`);
+    else parts.push(amount);
   }
+  if (durationSeconds !== undefined) parts.push(formatDuration(durationSeconds));
+  if (distance) parts.push(`${distance.value} ${distance.unit}`);
+  return parts.join(' · ');
+}
+
+export function formatDuration(seconds: number): string {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds / 60) % 60;
+  const remainder = String(seconds % 60).padStart(2, '0');
+  return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${remainder}` : `${minutes}:${remainder}`;
+}
+
+export function parseDuration(text: string): number {
+  const parts = text.trim().split(':');
+  if (parts.length > 3 || parts.some((part) => !/^\d+$/.test(part))) return NaN;
+  const values = parts.map(Number);
+  if (values.slice(1).some((value) => value >= 60)) return NaN;
+  return values.reduce((total, value) => total * 60 + value, 0);
 }
 
 export function errorMessage(error: unknown): string {

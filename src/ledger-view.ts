@@ -1,5 +1,6 @@
 import { ItemView, type Modal, type WorkspaceLeaf } from 'obsidian';
 import { progressExercises, workoutExercises } from './analytics.ts';
+import { starterExercises } from './catalog.ts';
 import { WorkoutNoteDrafts } from './drafts.ts';
 import { renderExportView } from './export-view.ts';
 import { toCsv, toJson, workoutContext } from './exports.ts';
@@ -33,11 +34,11 @@ export class LedgerView extends ItemView {
   private useNewWorkout = false;
   private workoutExerciseId: string | undefined;
   private progressExerciseId: string | undefined;
-  private chartUnit: WeightUnit | undefined;
   private chartCleanup: (() => void) | undefined;
   private body?: HTMLElement;
   private issues?: HTMLElement;
   private status?: HTMLElement;
+  private automaticCsvStatus?: HTMLElement;
   private buttons: Array<{ screen?: LedgerScreen; button: HTMLButtonElement }> = [];
   private modal?: Modal;
   private busy = false;
@@ -45,7 +46,7 @@ export class LedgerView extends ItemView {
   private readonly noteDrafts = new WorkoutNoteDrafts();
   private readonly setDrafts = new Map<string, SetDraft>();
 
-  constructor(leaf: WorkspaceLeaf, repository: LedgerRepository, displayName: string) {
+  constructor(leaf: WorkspaceLeaf, repository: LedgerRepository, displayName: string, private weightUnit: WeightUnit) {
     super(leaf);
     this.repository = repository;
     this.displayName = displayName;
@@ -54,6 +55,12 @@ export class LedgerView extends ItemView {
   getViewType(): string { return LEDGER_VIEW; }
   getDisplayText(): string { return this.displayName; }
   getIcon(): string { return 'dumbbell'; }
+
+  setWeightUnit(unit: WeightUnit): void {
+    if (this.weightUnit === unit) return;
+    this.weightUnit = unit;
+    if (!this.busy) this.render();
+  }
 
   async onOpen(): Promise<void> {
     this.closed = false;
@@ -66,6 +73,7 @@ export class LedgerView extends ItemView {
     }));
     this.buttons.push({ button: actionButton(header, 'Refresh', () => { void this.reload(); }) });
     this.status = this.contentEl.createEl('p', { cls: 'rep-journal-status', attr: { role: 'status' } });
+    this.automaticCsvStatus = this.contentEl.createEl('p', { cls: 'rep-journal-status', attr: { role: 'status' } });
     this.issues = this.contentEl.createDiv();
     this.body = this.contentEl.createDiv({ cls: 'rep-journal-body' });
     const document = this.contentEl.ownerDocument;
@@ -106,20 +114,30 @@ export class LedgerView extends ItemView {
         this.render();
         this.status?.setText('');
       });
+      this.refreshAutomaticCsv();
     } catch (error: unknown) {
       this.status?.setText(errorMessage(error));
     }
   }
 
+  private refreshAutomaticCsv(): void {
+    const status = this.automaticCsvStatus;
+    void this.repository.refreshAutomaticCsv().then(() => status?.setText(''), (error: unknown) => {
+      status?.setText(`Could not update the automatic CSV. ${errorMessage(error)} Select Refresh to try again.`);
+    });
+  }
+
   private async runExclusive<T>(action: () => Promise<T>): Promise<T> {
     if (this.busy || this.closed) throw new Error('The workout log is busy. Try again in a moment.');
     this.busy = true;
+    const entryUnit = this.weightUnit;
     this.updateButtons();
     try {
       return await action();
     } finally {
       this.busy = false;
       this.updateButtons();
+      if (entryUnit !== this.weightUnit) this.render();
     }
   }
 
@@ -184,7 +202,7 @@ export class LedgerView extends ItemView {
     const session = data.workouts.find(({ workout }) => workout.id === this.sessionId);
     const exercise = data.exercises.find((entry) => entry.id === this.workoutExerciseId && !entry.archived);
     renderWorkoutView(body, {
-      app: this.app, date, session, exercise, data,
+      app: this.app, date, session, exercise, data, weightUnit: this.weightUnit,
       noteDraft: this.noteDrafts.get(date, this.sessionId),
       setDraft: exercise ? this.setDrafts.get(exercise.id) : undefined,
       onNoteDraft: (id, draft) => { this.noteDrafts.save(date, id, draft); },
@@ -214,6 +232,7 @@ export class LedgerView extends ItemView {
         if (!original) this.noteDrafts.associate(date, saved.workout.id);
         this.sessionId = saved.workout.id;
         this.useNewWorkout = false;
+        if (change.kind !== 'notes') this.refreshAutomaticCsv();
         return saved;
       }),
     });
@@ -228,10 +247,9 @@ export class LedgerView extends ItemView {
     const exercise = progressExercises(data).find((entry) => entry.id === this.progressExerciseId);
     const original = data.exercises.find((entry) => entry.id === this.progressExerciseId);
     this.chartCleanup = renderProgressView(body, {
-      data, exercise, unit: this.chartUnit ?? exercise?.unit ?? 'lb',
+      data, exercise, unit: this.weightUnit,
       chooseExercise: () => this.pickExercise(true),
       editExercise: original ? () => this.editExercise(original.name, original) : undefined,
-      onUnit: (unit) => { this.chartUnit = unit; this.render(); },
     });
   }
 
@@ -243,39 +261,49 @@ export class LedgerView extends ItemView {
       }),
       showContext: (options) => this.runExclusive(async () => {
         const data = await this.repository.read();
-        this.openModal(new ContextDialog(this.app, workoutContext(data, options)));
+        this.openModal(new ContextDialog(this.app, workoutContext(data, options, this.weightUnit)));
       }),
     });
   }
 
   private pickExercise(progress: boolean): void {
     if (this.busy || !this.data) return;
-    const available = progress ? progressExercises(this.data) : workoutExercises(this.data);
+    const withHistory = progressExercises(this.data);
+    const available = progress ? withHistory : [...workoutExercises(this.data), ...starterExercises(withHistory)];
     this.openModal(new ExercisePicker(this.app, available, (exercise) => {
-      if (progress) {
-        this.progressExerciseId = exercise.id;
-        this.chartUnit = undefined;
-      } else {
-        this.workoutExerciseId = exercise.id;
-        this.progressExerciseId = exercise.id;
-        this.chartUnit = undefined;
+      if (!exercise.starter) {
+        this.selectExercise(exercise.id, progress);
+        return;
       }
-      this.render();
+      void this.runExclusive(async () => {
+        const saved = await this.repository.saveStarter(exercise);
+        this.refreshAutomaticCsv();
+        this.updateExercise(saved);
+        this.selectExercise(saved.id, progress);
+      }).catch((error: unknown) => this.status?.setText(errorMessage(error)));
     }, progress ? undefined : (name) => this.editExercise(name)));
   }
 
   private editExercise(name: string, original?: ExerciseNote): void {
     this.openModal(new ExerciseDialog(this.app, (details) => this.runExclusive(async () => {
       const saved = await this.repository.saveExercise(details, original);
-      if (!this.data || this.closed) return;
-      this.setDrafts.delete(saved.id);
-      this.data.exercises = [...this.data.exercises.filter((exercise) => exercise.id !== saved.id), saved]
-        .sort((a, b) => a.name.localeCompare(b.name));
-      if (this.screen === 'workout') this.workoutExerciseId = saved.id;
-      this.progressExerciseId = saved.id;
-      this.chartUnit = undefined;
-      this.render();
-    }), name, original));
+      this.refreshAutomaticCsv();
+      this.updateExercise(saved);
+      this.selectExercise(saved.id, this.screen === 'progress');
+    }), name, this.weightUnit, original));
+  }
+
+  private updateExercise(exercise: ExerciseNote): void {
+    if (!this.data || this.closed) return;
+    this.setDrafts.delete(exercise.id);
+    this.data.exercises = [...this.data.exercises.filter((entry) => entry.id !== exercise.id), exercise]
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private selectExercise(id: string, progress: boolean): void {
+    if (!progress) this.workoutExerciseId = id;
+    this.progressExerciseId = id;
+    this.render();
   }
 
   private openModal(modal: Modal): void {

@@ -1,0 +1,926 @@
+[
+  {
+    "name": "Back squat",
+    "equipment": "Barbell",
+    "aliases": ["Squat", "Barbell squat"],
+    "sources": ["https://shop.bodybuilding.com/blogs/training/how-to-squat-layne-nortons-squat-tutorial"]
+  },
+  {
+    "name": "Barbell curl",
+    "equipment": "Barbell",
+    "aliases": ["Straight-bar curl"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/70/bicep-curl/"]
+  },
+  {
+    "name": "Barbell floor press",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/floor-press/"]
+  },
+  {
+    "name": "Barbell forward lunge",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/8/forward-lunge/"]
+  },
+  {
+    "name": "Barbell good morning",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/good-mornings.html"]
+  },
+  {
+    "name": "Barbell hip thrust",
+    "equipment": "Barbell",
+    "aliases": ["Hip thrust"],
+    "sources": ["https://www.muscleandstrength.com/exercises/barbell-hip-thrust"]
+  },
+  {
+    "name": "Barbell push press",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/push-press/"]
+  },
+  {
+    "name": "Barbell reverse lunge",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/reverse-barbell-lunge/"]
+  },
+  {
+    "name": "Barbell row",
+    "equipment": "Barbell",
+    "aliases": ["Bent-over barbell row"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/12/bent-over-row/"]
+  },
+  {
+    "name": "Barbell shrug",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/barbell-shrug/"]
+  },
+  {
+    "name": "Bench press",
+    "equipment": "Barbell",
+    "aliases": ["Flat barbell bench press"],
+    "sources": ["https://shop.bodybuilding.com/blogs/training/mastering-bench-press-form-essential-techniques-and-cues"]
+  },
+  {
+    "name": "Box squat",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/box-squat/"]
+  },
+  {
+    "name": "Clean and jerk",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/clean-and-jerk/"]
+  },
+  {
+    "name": "Close-grip bench press",
+    "equipment": "Barbell",
+    "aliases": ["CGBP"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/311/close-grip-bench-press/"]
+  },
+  {
+    "name": "Conventional deadlift",
+    "equipment": "Barbell",
+    "aliases": ["Deadlift"],
+    "sources": ["https://shop.bodybuilding.com/blogs/training/how-to-deadlift-a-beginners-guide"]
+  },
+  {
+    "name": "Decline barbell bench press",
+    "equipment": "Barbell",
+    "aliases": ["Decline bench"],
+    "sources": ["https://www.strengthlog.com/decline-bench-press/"]
+  },
+  {
+    "name": "EZ-bar curl",
+    "equipment": "Barbell",
+    "aliases": ["EZ curl"],
+    "sources": ["https://www.strengthlog.com/ez-curl/"]
+  },
+  {
+    "name": "EZ-bar skull crusher",
+    "equipment": "Barbell",
+    "aliases": ["EZ-bar lying triceps extension"],
+    "sources": ["https://www.muscleandstrength.com/exercises/ez-bar-skullcrusher.html"]
+  },
+  {
+    "name": "Front squat",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/front-squat/"]
+  },
+  {
+    "name": "Hang clean",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/312/hang-clean/"]
+  },
+  {
+    "name": "Incline barbell bench press",
+    "equipment": "Barbell",
+    "aliases": ["Incline bench"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/incline-barbell-bench-press"]
+  },
+  {
+    "name": "Landmine press",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/landmine-press/"]
+  },
+  {
+    "name": "Pendlay row",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/pendlay-row/"]
+  },
+  {
+    "name": "Power clean",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/power-clean/"]
+  },
+  {
+    "name": "Power snatch",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/power-snatch/"]
+  },
+  {
+    "name": "Romanian deadlift",
+    "equipment": "Barbell",
+    "aliases": ["RDL", "Barbell Romanian deadlift"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/romanian-deadlift-barbell"]
+  },
+  {
+    "name": "Standing barbell overhead press",
+    "equipment": "Barbell",
+    "aliases": ["Overhead press", "OHP"],
+    "sources": ["https://shop.bodybuilding.com/blogs/training/how-to-overhead-press-a-beginners-guide"]
+  },
+  {
+    "name": "Stiff-leg deadlift",
+    "equipment": "Barbell",
+    "aliases": ["Straight-leg deadlift"],
+    "sources": ["https://www.strengthlog.com/stiff-legged-deadlift/"]
+  },
+  {
+    "name": "Sumo deadlift",
+    "equipment": "Barbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/sumo-deadlift/"]
+  },
+  {
+    "name": "High-handle trap bar deadlift",
+    "equipment": "Trap bar",
+    "aliases": ["Hex bar deadlift"],
+    "sources": ["https://www.strengthlog.com/trap-bar-deadlift-with-high-handles/"]
+  },
+  {
+    "name": "Low-handle trap bar deadlift",
+    "equipment": "Trap bar",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/trap-bar-deadlift-with-low-handles/"]
+  },
+  {
+    "name": "Chest-supported dumbbell row",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/chest-supported-dumbbell-row/"]
+  },
+  {
+    "name": "Concentration curl",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/concentration-curl/"]
+  },
+  {
+    "name": "Dumbbell bench press",
+    "equipment": "Dumbbell",
+    "aliases": ["DB bench", "Dumbbell chest press"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/19/chest-press/"]
+  },
+  {
+    "name": "Dumbbell Bulgarian split squat",
+    "equipment": "Dumbbell",
+    "aliases": ["Rear-foot-elevated split squat", "RFESS"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/366/bulgarian-split-squat/"]
+  },
+  {
+    "name": "Dumbbell curl",
+    "equipment": "Dumbbell",
+    "aliases": ["DB curl"],
+    "sources": ["https://www.muscleandstrength.com/exercises/standing-dumbbell-curl.html"]
+  },
+  {
+    "name": "Dumbbell floor press",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/dumbbell-floor-press.html"]
+  },
+  {
+    "name": "Dumbbell fly",
+    "equipment": "Dumbbell",
+    "aliases": ["DB chest fly"],
+    "sources": ["https://www.muscleandstrength.com/exercises/dumbbell-flys.html"]
+  },
+  {
+    "name": "Dumbbell front raise",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/54/front-raise/"]
+  },
+  {
+    "name": "Dumbbell front squat",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/22/front-squat/"]
+  },
+  {
+    "name": "Dumbbell goblet squat",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/362/goblet-squat/"]
+  },
+  {
+    "name": "Dumbbell lateral lunge",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/364/lateral-lunge/"]
+  },
+  {
+    "name": "Dumbbell lateral raise",
+    "equipment": "Dumbbell",
+    "aliases": ["DB lateral raise"],
+    "sources": ["https://www.muscleandstrength.com/exercises/dumbbell-lateral-raise.html"]
+  },
+  {
+    "name": "Dumbbell pullover",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/dumbbell-pullover.html"]
+  },
+  {
+    "name": "Dumbbell reverse lunge",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/reverse-dumbbell-lunge/"]
+  },
+  {
+    "name": "Dumbbell Romanian deadlift",
+    "equipment": "Dumbbell",
+    "aliases": ["DB RDL"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/dumbbell-romanian-deadlift"]
+  },
+  {
+    "name": "Dumbbell shrug",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/dumbbell-shrugs.html"]
+  },
+  {
+    "name": "Dumbbell step-up",
+    "equipment": "Dumbbell",
+    "aliases": ["DB step-up"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/28/step-up/"]
+  },
+  {
+    "name": "Dumbbell walking lunge",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/dumbbell-walking-lunge/"]
+  },
+  {
+    "name": "Farmer’s carry",
+    "equipment": "Dumbbell",
+    "aliases": ["Farmer carry", "Farmer walk"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/359/farmer-s-carry/"]
+  },
+  {
+    "name": "Hammer curl",
+    "equipment": "Dumbbell",
+    "aliases": ["DB hammer curl"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/10/hammer-curl/"]
+  },
+  {
+    "name": "Incline dumbbell bench press",
+    "equipment": "Dumbbell",
+    "aliases": ["Incline DB press"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/25/incline-chest-press/"]
+  },
+  {
+    "name": "Incline dumbbell curl",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/incline-dumbbell-curl.html"]
+  },
+  {
+    "name": "Incline reverse fly",
+    "equipment": "Dumbbell",
+    "aliases": ["Incline rear delt fly"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/34/incline-reverse-fly/"]
+  },
+  {
+    "name": "One-arm dumbbell row",
+    "equipment": "Dumbbell",
+    "aliases": ["DB row", "Dumbbell row"],
+    "sources": ["https://www.muscleandstrength.com/exercises/one-arm-dumbbell-row.html"]
+  },
+  {
+    "name": "Overhead dumbbell triceps extension",
+    "equipment": "Dumbbell",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/two-arm-dumbbell-extension.html"]
+  },
+  {
+    "name": "Seated Arnold press",
+    "equipment": "Dumbbell",
+    "aliases": ["Arnold press"],
+    "sources": ["https://www.muscleandstrength.com/exercises/seated-arnold-press.html"]
+  },
+  {
+    "name": "Seated dumbbell shoulder press",
+    "equipment": "Dumbbell",
+    "aliases": ["Seated DB press"],
+    "sources": ["https://www.muscleandstrength.com/exercises/seated-dumbbell-press.html"]
+  },
+  {
+    "name": "Suitcase carry",
+    "equipment": "Dumbbell",
+    "aliases": ["Single-arm farmer carry"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/358/suitcase-carry/"]
+  },
+  {
+    "name": "Cable crunch",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/cable-crunch.html"]
+  },
+  {
+    "name": "Cable face pull",
+    "equipment": "Cable",
+    "aliases": ["Face pull"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/face-pull"]
+  },
+  {
+    "name": "Cable glute kickback",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/cable-glute-kickback/"]
+  },
+  {
+    "name": "Cable hip adduction",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/cable-machine-hip-adduction/"]
+  },
+  {
+    "name": "Cable lateral raise",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/cable-lateral-raise/"]
+  },
+  {
+    "name": "Cable Pallof press",
+    "equipment": "Cable",
+    "aliases": ["Pallof press"],
+    "sources": ["https://www.muscleandstrength.com/exercises/pallof-press"]
+  },
+  {
+    "name": "Cable pull-through",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/cable-pull-through/"]
+  },
+  {
+    "name": "Cable wood chop",
+    "equipment": "Cable",
+    "aliases": ["Cable woodchop"],
+    "sources": ["https://www.muscleandstrength.com/exercises/wood-chop.html"]
+  },
+  {
+    "name": "Close-grip seated cable row",
+    "equipment": "Cable",
+    "aliases": ["Seated cable row"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/48/seated-row/"]
+  },
+  {
+    "name": "Neutral-grip lat pulldown",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/lat-pulldown-with-neutral-grip/"]
+  },
+  {
+    "name": "One-arm cable row",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/337/single-arm-row/"]
+  },
+  {
+    "name": "Overhand lat pulldown",
+    "equipment": "Cable",
+    "aliases": ["Lat pulldown", "Pronated lat pulldown"],
+    "sources": ["https://www.muscleandstrength.com/exercises/lat-pull-down.html"]
+  },
+  {
+    "name": "Overhead cable triceps extension",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/overhead-cable-triceps-extension/"]
+  },
+  {
+    "name": "Rope hammer curl",
+    "equipment": "Cable",
+    "aliases": ["Rope cable curl"],
+    "sources": ["https://www.strengthlog.com/cable-curl-with-rope/"]
+  },
+  {
+    "name": "Rope triceps pushdown",
+    "equipment": "Cable",
+    "aliases": ["Rope pressdown"],
+    "sources": ["https://www.muscleandstrength.com/exercises/rope-tricep-extension.html"]
+  },
+  {
+    "name": "Standing cable fly",
+    "equipment": "Cable",
+    "aliases": ["Cable crossover"],
+    "sources": ["https://www.strengthlog.com/standing-cable-chest-fly/"]
+  },
+  {
+    "name": "Straight-arm pulldown",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/straight-arm-lat-pull-down.html"]
+  },
+  {
+    "name": "Straight-bar cable curl",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/cable-curl.html"]
+  },
+  {
+    "name": "Straight-bar triceps pushdown",
+    "equipment": "Cable",
+    "aliases": ["Cable pushdown", "Triceps pressdown"],
+    "sources": ["https://www.muscleandstrength.com/exercises/tricep-extension.html"]
+  },
+  {
+    "name": "Wide-grip seated cable row",
+    "equipment": "Cable",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/cable-wide-grip-seated-row/"]
+  },
+  {
+    "name": "Hack squat",
+    "equipment": "Machine",
+    "aliases": ["Hack squat machine"],
+    "sources": ["https://www.muscleandstrength.com/exercises/hack-squat.html"]
+  },
+  {
+    "name": "Leg extension",
+    "equipment": "Machine",
+    "aliases": ["Knee extension"],
+    "sources": ["https://www.strengthlog.com/leg-extension/"]
+  },
+  {
+    "name": "Leg press",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/leg-press"]
+  },
+  {
+    "name": "Lying leg curl",
+    "equipment": "Machine",
+    "aliases": ["Prone hamstring curl"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/153/lying-hamstrings-curl/"]
+  },
+  {
+    "name": "Machine biceps curl",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/184/seated-biceps-curl/"]
+  },
+  {
+    "name": "Machine chest press",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/188/seated-chest-press/"]
+  },
+  {
+    "name": "Machine crunch",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/291/seated-crunch/"]
+  },
+  {
+    "name": "Machine hip abduction",
+    "equipment": "Machine",
+    "aliases": ["Hip abductor machine"],
+    "sources": ["https://www.muscleandstrength.com/exercises/hip-abduction-machine.html"]
+  },
+  {
+    "name": "Machine hip adduction",
+    "equipment": "Machine",
+    "aliases": ["Hip adductor machine"],
+    "sources": ["https://www.muscleandstrength.com/exercises/hip-adduction-machine.html"]
+  },
+  {
+    "name": "Machine hip thrust",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/hip-thrust-machine/"]
+  },
+  {
+    "name": "Machine lateral raise",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/295/lateral-shoulder-raise/"]
+  },
+  {
+    "name": "Machine shoulder press",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/machine-shoulder-press/"]
+  },
+  {
+    "name": "Machine-assisted dip",
+    "equipment": "Machine",
+    "aliases": ["Assisted dip"],
+    "sources": ["https://www.strengthlog.com/assisted-dips/"]
+  },
+  {
+    "name": "Machine-assisted pull-up",
+    "equipment": "Machine",
+    "aliases": ["Assisted pull-up"],
+    "sources": ["https://www.strengthlog.com/assisted-pull-up/"]
+  },
+  {
+    "name": "Pec deck",
+    "equipment": "Machine",
+    "aliases": ["Pec deck fly"],
+    "sources": ["https://www.muscleandstrength.com/exercises/pec-dec.html"]
+  },
+  {
+    "name": "Seated leg curl",
+    "equipment": "Machine",
+    "aliases": ["Seated hamstring curl"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/seated-leg-curl"]
+  },
+  {
+    "name": "Seated machine calf raise",
+    "equipment": "Machine",
+    "aliases": ["Seated calf raise"],
+    "sources": ["https://www.muscleandstrength.com/exercises/seated-calf-raise.html"]
+  },
+  {
+    "name": "Seated machine row",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/seated-machine-row/"]
+  },
+  {
+    "name": "Single-leg press",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/single-leg-press"]
+  },
+  {
+    "name": "Standing machine calf raise",
+    "equipment": "Machine",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/standing-machine-calf-raise"]
+  },
+  {
+    "name": "Smith machine bench press",
+    "equipment": "Smith machine",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/smith-machine-bench-press/"]
+  },
+  {
+    "name": "Smith machine hip thrust",
+    "equipment": "Smith machine",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/smith-machine-hip-thrust/"]
+  },
+  {
+    "name": "Smith machine incline bench press",
+    "equipment": "Smith machine",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/smith-machine-incline-bench-press/"]
+  },
+  {
+    "name": "Smith machine Romanian deadlift",
+    "equipment": "Smith machine",
+    "aliases": ["Smith RDL"],
+    "sources": ["https://www.strengthlog.com/smith-machine-romanian-deadlift/"]
+  },
+  {
+    "name": "Smith machine squat",
+    "equipment": "Smith machine",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/smith-machine-squat/"]
+  },
+  {
+    "name": "Back extension",
+    "equipment": "Bodyweight",
+    "aliases": ["Hyperextension"],
+    "sources": ["https://www.muscleandstrength.com/exercises/hyperextension.html"]
+  },
+  {
+    "name": "Bicycle crunch",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/bicycle-crunch/"]
+  },
+  {
+    "name": "Bird dog",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/14/bird-dog/"]
+  },
+  {
+    "name": "Bodyweight calf raise",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/bodyweight-standing-calf-raise.html"]
+  },
+  {
+    "name": "Bodyweight reverse lunge",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/reverse-body-weight-lunges/"]
+  },
+  {
+    "name": "Bodyweight squat",
+    "equipment": "Bodyweight",
+    "aliases": ["Air squat"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/135/bodyweight-squat/"]
+  },
+  {
+    "name": "Crunch",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/52/crunch/"]
+  },
+  {
+    "name": "Dead bug",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/dead-bug"]
+  },
+  {
+    "name": "Decline push-up",
+    "equipment": "Bodyweight",
+    "aliases": ["Feet-elevated push-up"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/decline-push-up"]
+  },
+  {
+    "name": "Glute bridge",
+    "equipment": "Bodyweight",
+    "aliases": ["Floor bridge"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/floor-bridge"]
+  },
+  {
+    "name": "Incline push-up",
+    "equipment": "Bodyweight",
+    "aliases": ["Elevated-hands push-up"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/incline-push-up"]
+  },
+  {
+    "name": "Knee push-up",
+    "equipment": "Bodyweight",
+    "aliases": ["Modified push-up"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/13/bent-knee-push-up/"]
+  },
+  {
+    "name": "Kneeling hip flexor stretch",
+    "equipment": "Bodyweight",
+    "aliases": ["Hip flexor stretch"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/142/kneeling-hip-flexor-stretch/"]
+  },
+  {
+    "name": "Lying leg raise",
+    "equipment": "Bodyweight",
+    "aliases": ["Floor leg raise"],
+    "sources": ["https://www.muscleandstrength.com/exercises/lying-floor-leg-raise.html"]
+  },
+  {
+    "name": "Nordic hamstring curl",
+    "equipment": "Bodyweight",
+    "aliases": ["Nordic curl"],
+    "sources": ["https://www.muscleandstrength.com/exercises/nordic-hamstring-curl-bodyweight"]
+  },
+  {
+    "name": "Pistol squat",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/pistol-squat/"]
+  },
+  {
+    "name": "Plank",
+    "equipment": "Bodyweight",
+    "aliases": ["Front plank", "Forearm plank"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/32/front-plank/"]
+  },
+  {
+    "name": "Push-up",
+    "equipment": "Bodyweight",
+    "aliases": ["Pushup"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/push-up"]
+  },
+  {
+    "name": "Single-leg glute bridge",
+    "equipment": "Bodyweight",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/one-legged-glute-bridge/"]
+  },
+  {
+    "name": "Walking lunge",
+    "equipment": "Bodyweight",
+    "aliases": ["Bodyweight walking lunge"],
+    "sources": ["https://www.muscleandstrength.com/exercises/bodyweight-walking-lunge.html"]
+  },
+  {
+    "name": "Chin-up",
+    "equipment": "Pull-up bar",
+    "aliases": ["Chinup"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/190/chin-ups/"]
+  },
+  {
+    "name": "Hanging knee raise",
+    "equipment": "Pull-up bar",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/hanging-knee-raise/"]
+  },
+  {
+    "name": "Hanging leg raise",
+    "equipment": "Pull-up bar",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/hanging-leg-raise.html"]
+  },
+  {
+    "name": "Neutral-grip pull-up",
+    "equipment": "Pull-up bar",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/pull-ups-with-a-neutral-grip/"]
+  },
+  {
+    "name": "Pull-up",
+    "equipment": "Pull-up bar",
+    "aliases": ["Pullup"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/191/pull-ups/"]
+  },
+  {
+    "name": "Parallel-bar dip",
+    "equipment": "Parallel bars",
+    "aliases": ["Dip", "Bar dip"],
+    "sources": ["https://www.strengthlog.com/bar-dip/"]
+  },
+  {
+    "name": "Bench dip",
+    "equipment": "Bench",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/bench-dips"]
+  },
+  {
+    "name": "Box jump",
+    "equipment": "Plyometric box",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/box-jumps"]
+  },
+  {
+    "name": "Inverted row",
+    "equipment": "Bar",
+    "aliases": ["Bodyweight row", "Australian pull-up"],
+    "sources": ["https://www.strengthlog.com/inverted-row/"]
+  },
+  {
+    "name": "Kettlebell clean",
+    "equipment": "Kettlebell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/kettlebell-clean/"]
+  },
+  {
+    "name": "Kettlebell clean and press",
+    "equipment": "Kettlebell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/383/clean-and-press/"]
+  },
+  {
+    "name": "Kettlebell deadlift",
+    "equipment": "Kettlebell",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/kettlebell-deadlift"]
+  },
+  {
+    "name": "Kettlebell front squat",
+    "equipment": "Kettlebell",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/kettlebell-front-squat"]
+  },
+  {
+    "name": "Kettlebell goblet squat",
+    "equipment": "Kettlebell",
+    "aliases": ["Goblet squat", "KB goblet squat"],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/goblet-squat"]
+  },
+  {
+    "name": "Kettlebell halo",
+    "equipment": "Kettlebell",
+    "aliases": [],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/394/halo/"]
+  },
+  {
+    "name": "Kettlebell row",
+    "equipment": "Kettlebell",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/kettlebell-row/"]
+  },
+  {
+    "name": "Kettlebell swing",
+    "equipment": "Kettlebell",
+    "aliases": ["KB swing"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/391/swing/"]
+  },
+  {
+    "name": "Kettlebell Turkish get-up",
+    "equipment": "Kettlebell",
+    "aliases": ["TGU"],
+    "sources": ["https://www.acefitness.org/continuing-education/certified/march-2025/8824/the-ace-do-it-better-series-the-turkish-get-up/"]
+  },
+  {
+    "name": "Single-arm kettlebell press",
+    "equipment": "Kettlebell",
+    "aliases": ["KB overhead press"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/395/single-arm-overhead-press/"]
+  },
+  {
+    "name": "Single-arm kettlebell swing",
+    "equipment": "Kettlebell",
+    "aliases": ["One-arm kettlebell swing"],
+    "sources": ["https://www.acefitness.org/resources/everyone/exercise-library/392/single-arm-swing/"]
+  },
+  {
+    "name": "Band biceps curl",
+    "equipment": "Resistance band",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/resistance-band-curl/"]
+  },
+  {
+    "name": "Band face pull",
+    "equipment": "Resistance band",
+    "aliases": [],
+    "sources": ["https://www.strengthlog.com/banded-face-pull/"]
+  },
+  {
+    "name": "Band glute bridge",
+    "equipment": "Resistance band",
+    "aliases": ["Banded glute bridge"],
+    "sources": ["https://www.muscleandstrength.com/exercises/banded-glute-bridge"]
+  },
+  {
+    "name": "Band good morning",
+    "equipment": "Resistance band",
+    "aliases": ["Banded good morning"],
+    "sources": ["https://www.muscleandstrength.com/exercises/banded-good-mornings"]
+  },
+  {
+    "name": "Band lateral walk",
+    "equipment": "Resistance band",
+    "aliases": ["Lateral band walk"],
+    "sources": ["https://www.muscleandstrength.com/exercises/lateral-band-walk"]
+  },
+  {
+    "name": "Band pull-apart",
+    "equipment": "Resistance band",
+    "aliases": [],
+    "sources": ["https://www.muscleandstrength.com/exercises/band-pull-apart"]
+  },
+  {
+    "name": "Band upright row",
+    "equipment": "Resistance band",
+    "aliases": ["Banded upright row"],
+    "sources": ["https://www.muscleandstrength.com/exercises/banded-upright-row"]
+  },
+  {
+    "name": "Band-assisted pull-up",
+    "equipment": "Resistance band",
+    "aliases": [],
+    "sources": ["https://www.nasm.org/resource-center/exercise-library/band-assisted-pull-up"]
+  },
+  {
+    "name": "Indoor rowing",
+    "equipment": "Rowing machine",
+    "aliases": ["Rowing", "Rowing machine", "Erg"],
+    "sources": ["https://www.concept2.com/training/rowing-technique"]
+  },
+  {
+    "name": "Running",
+    "equipment": "None",
+    "aliases": ["Run"],
+    "sources": ["https://worldathletics.org/news/performance/advice-runners-beginners"]
+  }
+]

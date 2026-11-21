@@ -1,5 +1,9 @@
 import { Modal, Notice, Setting, SuggestModal, type App } from 'obsidian';
-import { errorMessage, isLoadMode, isUnit, loadModes, type ExerciseChoice, type ExerciseDetails, type ExerciseNote } from './model.ts';
+import { matchesExerciseName, matchesTags, pickerTags } from './catalog.ts';
+import {
+  distanceUnits, errorMessage, isDistanceUnit, measurements, tagGroups, tagKey,
+  type ExerciseChoice, type ExerciseDetails, type ExerciseNote, type Measurement, type TagGroup, type WeightUnit,
+} from './model.ts';
 
 export function labeledInput(parent: HTMLElement, label: string, attrs: Record<string, string>): HTMLInputElement {
   const field = parent.createEl('label', { cls: 'rep-journal-field' });
@@ -27,6 +31,8 @@ export function addOption(select: HTMLSelectElement, value: string, label: strin
 type PickerEntry = { kind: 'exercise'; exercise: ExerciseChoice } | { kind: 'create'; name: string };
 
 export class ExercisePicker extends SuggestModal<PickerEntry> {
+  private readonly selectedTags = new Set<string>();
+
   constructor(
     app: App,
     private readonly exercises: ExerciseChoice[],
@@ -36,17 +42,56 @@ export class ExercisePicker extends SuggestModal<PickerEntry> {
     super(app);
     this.setPlaceholder('Search exercises');
     this.limit = 50;
+    this.addTagFilters();
+  }
+
+  private addTagFilters(): void {
+    const tags = pickerTags(this.exercises);
+    if (!tags.length) return;
+    const filters = this.modalEl.createEl('details', { cls: 'rep-journal-tag-filters' });
+    this.resultContainerEl.insertAdjacentElement('beforebegin', filters);
+    const heading = filters.createEl('summary', { text: 'Filter by tags' });
+    const checkboxes: HTMLInputElement[] = [];
+    const refresh = (): void => {
+      const count = this.selectedTags.size;
+      heading.setText(count ? `Filter by tags (${count})` : 'Filter by tags');
+      this.inputEl.trigger('input');
+    };
+    for (const [group, title] of Object.entries(tagGroups)) {
+      const choices = tags.filter((tag) => tag.group === group);
+      if (!choices.length) continue;
+      const field = filters.createEl('fieldset', { cls: 'rep-journal-tag-group' });
+      field.createEl('legend', { text: title });
+      for (const tag of choices) {
+        const key = tagKey(tag);
+        const label = field.createEl('label');
+        const input = label.createEl('input', { attr: { type: 'checkbox' } });
+        checkboxes.push(input);
+        label.createSpan({ text: tag.name });
+        input.addEventListener('change', () => {
+          if (input.checked) this.selectedTags.add(key);
+          else this.selectedTags.delete(key);
+          refresh();
+        });
+      }
+    }
+    actionButton(filters, 'Clear tag filters', () => {
+      for (const input of checkboxes) input.checked = false;
+      this.selectedTags.clear();
+      refresh();
+    });
   }
 
   getSuggestions(query: string): PickerEntry[] {
     const name = query.trim().slice(0, 120);
-    const lower = name.toLowerCase();
     const matches = this.exercises.filter((exercise) =>
-      [exercise.name, ...exercise.aliases, exercise.equipment].some((text) => text.toLowerCase().includes(lower)));
+      matchesExerciseName(exercise, name) && matchesTags(exercise, this.selectedTags));
+    matches.sort((a, b) => Number(matchesExerciseName(b, name, true)) - Number(matchesExerciseName(a, name, true)));
     const entries: PickerEntry[] = matches.slice(0, this.limit - 1).map((exercise) => ({ kind: 'exercise', exercise }));
-    if (this.create && (!lower || !matches.some((exercise) => exercise.name.toLowerCase() === lower))) {
+    if (this.create && (name || !this.selectedTags.size) &&
+        !this.exercises.some((exercise) => matchesExerciseName(exercise, name, true))) {
       const newExercise: PickerEntry = { kind: 'create', name };
-      if (lower) entries.push(newExercise);
+      if (name) entries.push(newExercise);
       else entries.unshift(newExercise);
     }
     return entries;
@@ -58,8 +103,8 @@ export class ExercisePicker extends SuggestModal<PickerEntry> {
       return;
     }
     el.createDiv({ text: entry.exercise.name });
-    const description = [entry.exercise.equipment, entry.exercise.archived ? 'Archived' : '',
-      entry.exercise.missingNote ? 'Exercise note missing' : ''].filter(Boolean).join(' · ');
+    const description = [entry.exercise.archived ? 'Archived' : '', entry.exercise.missingNote ? 'Exercise note missing' : '',
+      ...entry.exercise.tags.map(({ name }) => name)].filter(Boolean).join(' · ');
     if (description) el.createDiv({ cls: 'suggestion-note', text: description });
   }
 
@@ -74,6 +119,7 @@ export class ExerciseDialog extends Modal {
     app: App,
     private readonly save: (details: ExerciseDetails) => Promise<void>,
     private readonly initialName: string,
+    private readonly weightUnit: WeightUnit,
     private readonly original?: ExerciseNote,
   ) {
     super(app);
@@ -84,36 +130,54 @@ export class ExerciseDialog extends Modal {
     const form = this.contentEl.createEl('form');
     const fields = form.createEl('fieldset', { cls: 'rep-journal-fields' });
     let name = this.original?.name ?? this.initialName;
-    let equipment = this.original?.equipment ?? '';
     let aliases = this.original?.aliases.join(', ') ?? '';
-    let loadMode = this.original?.loadMode ?? 'weight';
-    let unit = this.original?.unit ?? 'lb';
+    const tracked = new Set<Measurement>(this.original?.measurements ?? ['weight', 'reps']);
+    let distanceUnit = this.original?.distanceUnit ?? 'm';
     let archived = this.original?.archived ?? false;
 
-    new Setting(fields).setName('Name').addText((control) => {
+    new Setting(fields).setName('Display name').addText((control) => {
       control.setValue(name).onChange((value) => { name = value; });
       control.inputEl.required = true;
       control.inputEl.maxLength = 120;
-      control.inputEl.setAttribute('aria-label', 'Name');
+      control.inputEl.setAttribute('aria-label', 'Display name');
     });
-    new Setting(fields).setName('Equipment').addText((control) => {
-      control.setValue(equipment).onChange((value) => { equipment = value; });
-      control.inputEl.setAttribute('aria-label', 'Equipment');
-    });
-    new Setting(fields).setName('Aliases').setDesc('Separate search aliases with commas.').addText((control) => {
+    new Setting(fields).setName('Search aliases').setDesc('Separate names with commas. Previous display names remain searchable.').addText((control) => {
       control.setValue(aliases).onChange((value) => { aliases = value; });
-      control.inputEl.setAttribute('aria-label', 'Aliases');
+      control.inputEl.setAttribute('aria-label', 'Search aliases');
     });
-    new Setting(fields).setName('Default load').addDropdown((control) => {
-      for (const mode of loadModes) control.addOption(mode.value, mode.label);
-      control.setValue(loadMode).onChange((value) => { if (isLoadMode(value)) loadMode = value; });
-      control.selectEl.setAttribute('aria-label', 'Default load');
+    const measureFields = fields.createEl('fieldset', { cls: 'rep-journal-tag-group' });
+    measureFields.createEl('legend', { text: 'Measurements' });
+    const distanceFields = fields.createDiv();
+    for (const key of Object.keys(measurements) as Measurement[]) {
+      const label = measureFields.createEl('label');
+      const input = label.createEl('input', { attr: { type: 'checkbox' } });
+      label.createSpan({ text: measurements[key] });
+      input.checked = tracked.has(key);
+      input.addEventListener('change', () => {
+        if (input.checked) tracked.add(key);
+        else tracked.delete(key);
+        distanceFields.hidden = !tracked.has('distance');
+      });
+    }
+    distanceFields.hidden = !tracked.has('distance');
+    new Setting(distanceFields).setName('Distance unit').addDropdown((control) => {
+      for (const unit of distanceUnits) control.addOption(unit, unit);
+      control.setValue(distanceUnit).onChange((value) => { if (isDistanceUnit(value)) distanceUnit = value; });
+      control.selectEl.setAttribute('aria-label', 'Distance unit');
     });
-    new Setting(fields).setName('Default unit').addDropdown((control) => {
-      control.addOption('lb', 'Pounds (lb)').addOption('kg', 'Kilograms (kg)').setValue(unit)
-        .onChange((value) => { if (isUnit(value)) unit = value; });
-      control.selectEl.setAttribute('aria-label', 'Default unit');
-    });
+    const tags = fields.createEl('details', { cls: 'rep-journal-exercise-tags' });
+    tags.createEl('summary', { text: 'Exercise tags' });
+    const tagInputs = new Map<TagGroup, string>();
+    for (const group of Object.keys(tagGroups) as TagGroup[]) {
+      const title = tagGroups[group];
+      const current = this.original?.tags.filter((tag) => tag.group === group).map(({ name }) => name).join(', ') ?? '';
+      tagInputs.set(group, current);
+      new Setting(tags).setName(title).addText((control) => {
+        control.setValue(current).onChange((value) => { tagInputs.set(group, value); });
+        control.inputEl.setAttribute('aria-label', title);
+        control.setPlaceholder('Separate tags with commas');
+      });
+    }
     if (this.original) {
       new Setting(fields).setName('Archived').setDesc('Hide this exercise from the workout picker.').addToggle((control) => {
         control.setValue(archived).setTooltip('Archived').onChange((value) => { archived = value; });
@@ -129,12 +193,19 @@ export class ExerciseDialog extends Modal {
         message.setText('Enter an exercise name.');
         return;
       }
+      if (!tracked.size) {
+        message.setText('Choose at least one measurement.');
+        return;
+      }
       submit.disabled = true;
       fields.disabled = true;
-      const details = {
-        name: name.trim(), equipment: equipment.trim(),
-        aliases: [...new Set(aliases.split(',').map((alias) => alias.trim()).filter(Boolean))],
-        loadMode, unit, archived,
+      const loadMode = this.original?.loadMode;
+      const details: ExerciseDetails = {
+        name: name.trim(), equipment: this.original?.equipment ?? '', aliases: commaSeparated(aliases),
+        loadMode: loadMode === 'added' || loadMode === 'assistance' ? loadMode : tracked.has('weight') ? 'weight' : 'bodyweight',
+        unit: this.original?.unit ?? this.weightUnit,
+        archived, measurements: [...tracked], distanceUnit,
+        tags: [...tagInputs].flatMap(([group, names]) => commaSeparated(names).map((tag) => ({ group, name: tag }))),
       };
       void this.save(details).then(() => this.close(), (error: unknown) => {
         message.setText(errorMessage(error));
@@ -147,6 +218,10 @@ export class ExerciseDialog extends Modal {
   onClose(): void {
     this.contentEl.empty();
   }
+}
+
+function commaSeparated(text: string): string[] {
+  return text.split(',').map((part) => part.trim()).filter(Boolean);
 }
 
 export class ContextDialog extends Modal {

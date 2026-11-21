@@ -10,7 +10,7 @@ interface ExportOptions {
 export function renderExportView(parent: HTMLElement, options: ExportOptions): void {
   const exports = parent.createDiv({ cls: 'rep-journal-panel' });
   exports.createEl('h3', { text: 'Export training data' });
-  exports.createEl('p', { text: 'CSV contains one row per set. JSON includes the full exercise catalog and workout history.' });
+  exports.createEl('p', { text: 'Exports/rep-journal.csv updates automatically. Manual CSV and JSON exports save dated copies.' });
   const buttons = exports.createDiv({ cls: 'rep-journal-actions' });
   const fileStatus = exports.createEl('p', { cls: 'rep-journal-status', attr: { role: 'status' } });
   const csv = actionButton(buttons, 'Export CSV', () => save('csv'));

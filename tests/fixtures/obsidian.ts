@@ -54,6 +54,7 @@ export class MemoryVault {
       return { files: [...this.files.keys()].filter((file) => this.parentPath(file) === path), folders: [] };
     },
     read: async (path: string): Promise<string> => this.entry(path).text,
+    write: async (path: string, text: string): Promise<void> => { this.entry(path).text = text; },
     process: async (path: string, transform: (text: string) => string): Promise<string> => {
       const entry = this.entry(path);
       entry.text = transform(entry.text);
@@ -85,6 +86,7 @@ export class MemoryVault {
   }
 
   cachedRead(file: TFile): Promise<string> { return this.adapter.read(file.path); }
+  modify(file: TFile, text: string): Promise<void> { return this.adapter.write(file.path, text); }
   process(file: TFile, transform: (text: string) => string): Promise<string> { return this.adapter.process(file.path, transform); }
 
   private entry(path: string): { text: string; file: TFile } {

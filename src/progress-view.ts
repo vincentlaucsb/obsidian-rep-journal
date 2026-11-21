@@ -1,6 +1,6 @@
 import { exerciseHistory, strengthTrend, type StrengthPoint } from './analytics.ts';
 import { describeSet, type ExerciseChoice, type LedgerData, type WeightUnit } from './model.ts';
-import { actionButton, addOption, labeledSelect } from './ui-controls.ts';
+import { actionButton } from './ui-controls.ts';
 
 interface ChartPoint {
   x: number;
@@ -134,7 +134,6 @@ interface ProgressOptions {
   unit: WeightUnit;
   chooseExercise: () => void;
   editExercise?: () => void;
-  onUnit: (unit: WeightUnit) => void;
 }
 
 export function renderProgressView(parent: HTMLElement, options: ProgressOptions): (() => void) | undefined {
@@ -147,16 +146,16 @@ export function renderProgressView(parent: HTMLElement, options: ProgressOptions
   }
   if (options.editExercise) actionButton(toolbar, 'Edit exercise', options.editExercise);
   const history = exerciseHistory(data.workouts.map(({ workout }) => workout), exercise.id);
-  const graph = parent.createDiv({ cls: 'rep-journal-panel' });
-  graph.createEl('h3', { text: 'Estimated 1RM' });
-  const unitSelect = labeledSelect(graph, 'Chart unit');
-  addOption(unitSelect, 'lb', 'lb');
-  addOption(unitSelect, 'kg', 'kg');
-  unitSelect.value = unit;
-  unitSelect.addEventListener('change', () => { if (unitSelect.value === 'lb' || unitSelect.value === 'kg') options.onUnit(unitSelect.value); });
   const points = strengthTrend(history, unit);
-  const clean = points.length ? drawChart(graph, points, unit) : undefined;
-  if (!points.length) graph.createEl('p', { text: 'Log a weighted working set of 1–10 reps to see an estimate.', cls: 'rep-journal-muted' });
+  let clean: (() => void) | undefined;
+  const estimatesEnabled = exercise.measurements.includes('weight') && exercise.measurements.includes('reps') &&
+    exercise.loadMode !== 'assistance' && exercise.loadMode !== 'added';
+  if (points.length || estimatesEnabled) {
+    const graph = parent.createDiv({ cls: 'rep-journal-panel' });
+    graph.createEl('h3', { text: 'Estimated 1RM' });
+    if (points.length) clean = drawChart(graph, points, unit);
+    else graph.createEl('p', { text: 'Log a weighted set of 1–10 reps to see an estimate.', cls: 'rep-journal-muted' });
+  }
 
   const sessions = parent.createDiv({ cls: 'rep-journal-panel' });
   sessions.createEl('h3', { text: 'Exercise history' });
@@ -169,7 +168,7 @@ export function renderProgressView(parent: HTMLElement, options: ProgressOptions
       estimate === undefined ? '' : ` · ${estimate.toFixed(1)} ${unit} estimated`
     }` });
     const list = details.createEl('ol');
-    for (const set of sets) list.createEl('li', { text: `${describeSet(set)}${set.warmup ? ' · warm-up' : ''}` });
+    for (const set of sets) list.createEl('li', { text: describeSet(set) });
   }
   return clean;
 }

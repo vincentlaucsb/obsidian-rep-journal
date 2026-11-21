@@ -23,7 +23,7 @@ export default defineConfig(
     },
   },
   {
-    files: ['tests/**/*.ts'],
+    files: ['src/import-cli.ts', 'src/import-vault.ts', 'tests/**/*.ts'],
     rules: {
       // These files run under Node and are outside the mobile plugin bundle.
       'obsidianmd/no-nodejs-modules': 'off',
