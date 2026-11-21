@@ -1,10 +1,11 @@
-import { Notice, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem } from 'obsidian';
+import { MarkdownView, Notice, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type TFile } from 'obsidian';
 import { LEDGER_VIEW, LedgerView, type LedgerScreen } from './ledger-view.ts';
 import { errorMessage, isRecord, isUnit, type WeightUnit } from './model.ts';
 import { LedgerRepository } from './repository.ts';
 
 export default class RepJournalPlugin extends Plugin {
   private opening = false;
+  private tidyingExerciseNotes = false;
   private preferences: Record<string, unknown> = {};
 
   get weightUnit(): WeightUnit {
@@ -21,6 +22,33 @@ export default class RepJournalPlugin extends Plugin {
     this.addRibbonIcon('dumbbell', 'Open workout log', () => { void this.openLedger('workout'); });
     this.addCommand({ id: 'open-workout-log', name: 'Open workout log', callback: () => { void this.openLedger('workout'); } });
     this.addCommand({ id: 'open-exercise-progress', name: 'Open exercise progress', callback: () => { void this.openLedger('progress'); } });
+    this.addCommand({
+      id: 'start-workout-plan', name: 'Start workout plan from current note', checkCallback: (checking) => {
+        const file = this.app.workspace.getActiveViewOfType(MarkdownView)?.file;
+        if (!file) return false;
+        if (!checking) void this.openLedger('workout', file);
+        return true;
+      },
+    });
+    this.addCommand({ id: 'tidy-exercise-notes', name: 'Tidy exercise notes', callback: () => { void this.tidyExerciseNotes(repository); } });
+  }
+
+  private async tidyExerciseNotes(repository: LedgerRepository): Promise<void> {
+    if (this.tidyingExerciseNotes) return;
+    this.tidyingExerciseNotes = true;
+    try {
+      const result = await repository.tidyExerciseNotes((file, path) => this.app.fileManager.renameFile(file, path));
+      const summary = `Exercise notes: ${result.renamed} renamed, ${result.guidesAdded} updated with guide links.`;
+      const issues = result.issues.length ? ` ${result.issues.length} need attention. ${result.issues[0]}` : '';
+      new Notice(summary + issues, issues ? 10000 : 6000);
+      for (const { view } of this.app.workspace.getLeavesOfType(LEDGER_VIEW)) {
+        if (view instanceof LedgerView) await view.reload();
+      }
+    } catch (error: unknown) {
+      new Notice(`Could not tidy exercise notes. ${errorMessage(error)}`);
+    } finally {
+      this.tidyingExerciseNotes = false;
+    }
   }
 
   async updateWeightUnit(weightUnit: WeightUnit): Promise<void> {
@@ -32,7 +60,7 @@ export default class RepJournalPlugin extends Plugin {
     }
   }
 
-  private async openLedger(screen: LedgerScreen): Promise<void> {
+  private async openLedger(screen: LedgerScreen, planFile?: TFile): Promise<void> {
     if (this.opening) return;
     this.opening = true;
     try {
@@ -44,7 +72,10 @@ export default class RepJournalPlugin extends Plugin {
       }
       await workspace.revealLeaf(leaf);
       workspace.setActiveLeaf(leaf, { focus: true });
-      if (leaf.view instanceof LedgerView) leaf.view.showScreen(screen);
+      if (leaf.view instanceof LedgerView) {
+        if (planFile) await leaf.view.startPlan(planFile);
+        else leaf.view.showScreen(screen);
+      }
     } catch (error: unknown) {
       new Notice(`Could not open the workout log. ${errorMessage(error)}`);
     } finally {

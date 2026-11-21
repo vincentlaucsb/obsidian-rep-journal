@@ -2,11 +2,13 @@
 
 Log workouts in an Obsidian tab, review past sessions, and follow your estimated one-rep max for strength exercises. The workout editor and progress view are available on mobile and desktop.
 
-- **Workout** opens today’s session. Pick a starter exercise or create one, fill its fields, and tap **Log set**. Each exercise can track a combination of weight, reps, time, and distance. Tap an existing set to edit or delete it.
+- **Workout** opens today’s session. Pick a starter exercise or create one, fill its fields, and tap **Log set**. Each exercise can track a combination of weight, reps, time, and distance. **Open note** opens the selected exercise’s Markdown note in a new tab. Tap an existing set to edit or delete it.
 - **Progress** shows per-exercise history and a chart based on the best eligible strength set in each session. Tap a point to see the recorded set behind the estimate. Choose **Edit exercise** to update its measurements, display name, search aliases, or grouped tags.
 - **Export** saves dated CSV and JSON copies. Rep Journal keeps `Rep Journal/Exports/rep-journal.csv` current as you log sets. **Prepare workout context** lets you preview and copy a date-filtered snapshot for the LLM you choose.
 
 The Workout and Progress pickers search display names and aliases and can filter by multiple tags. In Obsidian’s **Settings → Rep Journal**, choose pounds or kilograms for new entries and estimated 1RM. Historical sets keep their logged units.
+
+Choose **Start plan** in Workout to follow a [Markdown workout plan](docs/WORKOUT-PLANS.md), including supersets that rotate after each logged set.
 
 Use the [command-line JSON importer](docs/IMPORT.md) to bring in workouts from FitNotes or another tracker. The importer validates the file and reports errors in JSON so an LLM can help correct them.
 

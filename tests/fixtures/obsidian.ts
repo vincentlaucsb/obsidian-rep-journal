@@ -85,6 +85,18 @@ export class MemoryVault {
     return folder;
   }
 
+  rename(original: string, path: string): void {
+    if (this.files.has(path) || this.folders.has(path)) throw new Error('Path exists');
+    if (this.parentPath(original) !== this.parentPath(path)) throw new Error('Folder changed');
+    const entry = this.entry(original);
+    const { file } = entry;
+    this.files.delete(original);
+    file.path = path;
+    file.name = path.slice(path.lastIndexOf('/') + 1);
+    file.basename = file.name.slice(0, file.name.lastIndexOf('.'));
+    this.files.set(path, entry);
+  }
+
   cachedRead(file: TFile): Promise<string> { return this.adapter.read(file.path); }
   modify(file: TFile, text: string): Promise<void> { return this.adapter.write(file.path, text); }
   process(file: TFile, transform: (text: string) => string): Promise<string> { return this.adapter.process(file.path, transform); }

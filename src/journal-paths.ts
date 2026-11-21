@@ -4,9 +4,17 @@ export const journalFolder = 'Rep Journal';
 export const legacyFolder = 'Set Ledger';
 export const journalFolders = [journalFolder, legacyFolder] as const;
 
-export function exerciseFilename(exercise: Exercise): string {
-  const slug = exercise.name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').slice(0, 45) || 'exercise';
-  return `${slug}-${exercise.id}.md`;
+export function exerciseFilename(exercise: Pick<Exercise, 'name'>, number = 1): string {
+  const name = exercise.name.replace(/[<>:"/\\|?*#[\]\p{Cc}]+/gu, ' ').replace(/\s+/g, ' ')
+    .replace(/^[. ]+|[. ]+$/g, '') || 'Exercise';
+  const basename = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) ? `Exercise - ${name}` : name;
+  return `${basename}${number > 1 ? ` (${number})` : ''}.md`;
+}
+
+export function hasLegacyExerciseFilename(path: string, exercise: Exercise): boolean {
+  const filename = path.slice(path.lastIndexOf('/') + 1);
+  const suffix = `-${exercise.id}.md`;
+  return filename.endsWith(suffix) && /^[\p{L}\p{N}-]+$/u.test(filename.slice(0, -suffix.length));
 }
 
 export function workoutFilename(date: string, session: bigint): string {

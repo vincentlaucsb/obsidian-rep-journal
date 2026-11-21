@@ -23,7 +23,8 @@ void test('persists exercise notes and hidden workout JSON through a reload and 
   const vault = new MemoryVault();
   const writer = new LedgerRepository(vault);
   const exercise = await writer.saveExercise(details);
-  assert.match(exercise.path, /^Rep Journal\/Exercises\//);
+  assert.equal(exercise.path, 'Rep Journal/Exercises/Bench press.md');
+  assert.match(await vault.adapter.read(exercise.path), /## Exercise guides/);
   const date = '2026-10-01';
   const first: WorkoutSet = {
     id: makeId(), exerciseId: exercise.id, exerciseName: exercise.name, reps: 5,
@@ -144,6 +145,38 @@ void test('older bench press notes show starter tags and keep an explicit empty 
   assert.ok(exercise.tags.some(({ group, name }) => group === 'region' && name === 'Upper Body'));
   await repository.saveExercise({ ...exercise, tags: [] }, exercise);
   assert.deepEqual((await repository.read()).exercises[0].tags, []);
+});
+
+void test('tidying an exercise preserves its ID, custom notes and workout references', async () => {
+  const vault = new MemoryVault();
+  const repository = new LedgerRepository(vault);
+  await vault.createFolder('Set Ledger');
+  await vault.createFolder('Set Ledger/Exercises');
+  const id = makeId();
+  const properties = {
+    set_ledger_id: id, set_ledger_schema: 1, exercise_name: 'Bench Press',
+    load_mode: 'weight', weight_unit: 'lb', sources: ['https://example.org/my-guide'],
+  };
+  const oldPath = `Set Ledger/Exercises/Bench-Press-${id}.md`;
+  const original = `---\n${JSON.stringify(properties)}\n---\n\nMy setup cue.\n`;
+  await vault.create(oldPath, original);
+  await vault.create('Set Ledger/Exercises/bench press.md', 'An unrelated note.');
+  const set: WorkoutSet = { id: makeId(), exerciseId: id, exerciseName: 'Bench Press', reps: 5, warmup: false };
+  await repository.saveWorkout('2026-10-01', { kind: 'add', set });
+  const rename: Parameters<typeof repository.tidyExerciseNotes>[0] = (file, path) => Promise.resolve(vault.rename(file.path, path));
+
+  assert.deepEqual(await repository.tidyExerciseNotes(rename), { renamed: 1, guidesAdded: 1, issues: [] });
+  assert.equal(await vault.adapter.exists(oldPath), false);
+  assert.equal(await vault.adapter.read('Set Ledger/Exercises/bench press.md'), 'An unrelated note.');
+  const after = await repository.read();
+  const [exercise] = after.exercises;
+  assert.equal(exercise.path, 'Set Ledger/Exercises/Bench Press (2).md');
+  assert.equal(exercise.id, after.workouts[0].workout.sets[0].exerciseId);
+  const updated = await vault.adapter.read(exercise.path);
+  assert.ok(updated.startsWith(original));
+  assert.match(updated, /## Exercise guides[\s\S]*https:\/\/example\.org\/my-guide/);
+  assert.deepEqual(await repository.tidyExerciseNotes(rename), { renamed: 0, guidesAdded: 0, issues: [] });
+  assert.equal(await vault.adapter.read(exercise.path), updated);
 });
 
 void test('automatic CSV updates one hidden file while manual exports save dated copies', async () => {

@@ -114,6 +114,19 @@ function numberForInput(value: number, unchangedUnit: boolean): string {
   return String(unchangedUnit ? value : Number(value.toPrecision(12)));
 }
 
+async function openExerciseNote(app: App, exercise: ExerciseNote): Promise<void> {
+  try {
+    const file = app.vault.getFileByPath(exercise.path);
+    if (!file) {
+      new Notice('The exercise note moved or was deleted. Refresh the workout view and try again.');
+      return;
+    }
+    await app.workspace.getLeaf('tab').openFile(file, { active: true });
+  } catch (error: unknown) {
+    new Notice(`Could not open the exercise note. ${errorMessage(error)}`);
+  }
+}
+
 class EditSetDialog extends Modal {
   constructor(
     app: App,
@@ -172,8 +185,10 @@ interface WorkoutViewOptions {
   onToday: () => void;
   onSession: (id: string | null) => void;
   chooseExercise: () => void;
+  choosePlan?: () => void;
   openModal: (modal: Modal) => void;
   persist: (change: WorkoutChange, original?: WorkoutFile) => Promise<WorkoutFile>;
+  onPersisted: (change: WorkoutChange) => void;
 }
 
 export function renderWorkoutView(parent: HTMLElement, options: WorkoutViewOptions): void {
@@ -191,6 +206,7 @@ export function renderWorkoutView(parent: HTMLElement, options: WorkoutViewOptio
   });
   const sessionSelect = labeledSelect(toolbar, 'Session');
   const today = actionButton(toolbar, 'Today', options.onToday);
+  if (options.choosePlan) actionButton(toolbar, 'Start plan', options.choosePlan);
   const updateSessionSelect = (): void => {
     sessionSelect.empty();
     for (const [index, entry] of daySessions.entries()) addOption(sessionSelect, entry.workout.id, `Workout ${index + 1}`);
@@ -203,8 +219,14 @@ export function renderWorkoutView(parent: HTMLElement, options: WorkoutViewOptio
   const layout = parent.createDiv({ cls: 'rep-journal-workout-layout' });
   const logger = layout.createDiv({ cls: 'rep-journal-panel' });
   const review = layout.createDiv({ cls: 'rep-journal-panel' });
-  const selectExercise = actionButton(logger, exercise?.name ?? 'Choose exercise', options.chooseExercise, !exercise);
+  const exerciseActions = logger.createDiv({ cls: 'rep-journal-actions' });
+  const selectExercise = actionButton(exerciseActions, exercise?.name ?? 'Choose exercise', options.chooseExercise, !exercise);
   selectExercise.setAttribute('aria-label', exercise ? `Change exercise, ${exercise.name} selected` : 'Choose exercise');
+  if (exercise) {
+    const openNote = actionButton(exerciseActions, 'Open note', () => { void openExerciseNote(app, exercise); });
+    openNote.setAttribute('aria-label', `Open note for ${exercise.name} in a new tab`);
+    openNote.title = 'Open exercise note in a new tab';
+  }
   if (!exercise) logger.createEl('p', { cls: 'rep-journal-muted', text: 'Choose or create an exercise to log a set.' });
   const previous = logger.createDiv({ cls: 'rep-journal-previous' });
   const sets = review.createDiv();
@@ -313,6 +335,7 @@ export function renderWorkoutView(parent: HTMLElement, options: WorkoutViewOptio
       sessionSelect.disabled = false;
       selectExercise.disabled = false;
     }
+    options.onPersisted(change);
   }
 
   drawPrevious();

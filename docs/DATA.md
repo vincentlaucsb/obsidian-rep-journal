@@ -20,6 +20,8 @@ The vault contains the source data. Files under `Rep Journal/Exports` are snapsh
 
 The note body can hold user notes and links. Keep the ID when changing the name or moving the file within the `Exercises` folder. Starter exercise notes are created when you choose them from the Workout picker. Tags filter the pickers and work independently of set measurements and estimated 1RM.
 
+New exercise files use readable names such as `Bench Press.md`. If a name is taken, Rep Journal adds a number. The **Tidy exercise notes** command renames the older UUID-based files through Obsidian and adds an **Exercise guides** section when a known guide or note source is available. It keeps the exercise IDs and existing note text.
+
 An older note without `exercise_tags` shows the starter tags if its name or alias matches a single starter exercise. Saving it writes your chosen tags. An explicitly empty list stays empty.
 
 ## Workout JSON

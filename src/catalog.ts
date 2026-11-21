@@ -80,6 +80,35 @@ export function matchesExerciseName(exercise: ExerciseChoice, query: string, exa
   return [...names, exercise.equipment].some((name) => nameKey(name).includes(search));
 }
 
+export function suggestExercises(query: string, exercises: Iterable<ExerciseChoice>): ExerciseChoice[] {
+  const key = nameKey(query);
+  const limit = Math.max(1, Math.min(3, Math.floor(key.length / 4)));
+  const ranked: Array<{ exercise: ExerciseChoice; distance: number }> = [];
+  for (const exercise of exercises) {
+    let distance = Infinity;
+    for (const name of [exercise.name, ...exercise.aliases].map(nameKey)) {
+      if (Math.abs(name.length - key.length) <= limit) distance = Math.min(distance, editDistance(key, name));
+      if (key.length >= 4 && name.includes(key)) distance = Math.min(distance, limit);
+    }
+    if (distance <= limit) ranked.push({ exercise, distance });
+  }
+  return ranked.sort((a, b) => a.distance - b.distance || a.exercise.name.localeCompare(b.exercise.name))
+    .slice(0, 5).map(({ exercise }) => exercise);
+}
+
+function editDistance(from: string, to: string): number {
+  let previous = Array.from({ length: to.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= from.length; row++) {
+    const next = [row];
+    for (let column = 1; column <= to.length; column++) {
+      next.push(Math.min(previous[column] + 1, next[column - 1] + 1,
+        previous[column - 1] + (from[row - 1] === to[column - 1] ? 0 : 1)));
+    }
+    previous = next;
+  }
+  return previous[to.length];
+}
+
 export function pickerTags(exercises: readonly ExerciseChoice[]): ExerciseTag[] {
   const tags = new Map<string, ExerciseTag>();
   for (const exercise of exercises) {

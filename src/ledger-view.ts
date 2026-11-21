@@ -1,4 +1,4 @@
-import { ItemView, type Modal, type WorkspaceLeaf } from 'obsidian';
+import { Component, ItemView, type Modal, type TFile, type WorkspaceLeaf } from 'obsidian';
 import { progressExercises, workoutExercises } from './analytics.ts';
 import { starterExercises } from './catalog.ts';
 import { WorkoutNoteDrafts } from './drafts.ts';
@@ -6,11 +6,13 @@ import { renderExportView } from './export-view.ts';
 import { toCsv, toJson, workoutContext } from './exports.ts';
 import {
   compareWorkouts, errorMessage, localDate, resolveWorkoutDate, type ExerciseNote, type LedgerData, type WeightUnit,
-  type WorkoutFile,
+  type WorkoutChange, type WorkoutFile,
 } from './model.ts';
 import { renderProgressView } from './progress-view.ts';
 import { type LedgerRepository } from './repository.ts';
 import { actionButton, ContextDialog, ExerciseDialog, ExercisePicker } from './ui-controls.ts';
+import { renderWorkoutPlan, WorkoutPlanIssues, WorkoutPlanPicker } from './workout-plan-view.ts';
+import { advanceWorkoutPlan, parseWorkoutPlan, type PlanPosition, type WorkoutPlan } from './workout-plan.ts';
 import { renderWorkoutView, type SetDraft } from './workout-view.ts';
 
 // Obsidian persists this identifier in layouts from the Set Ledger preview.
@@ -34,6 +36,8 @@ export class LedgerView extends ItemView {
   private useNewWorkout = false;
   private workoutExerciseId: string | undefined;
   private progressExerciseId: string | undefined;
+  private activePlan?: { file: TFile; plan: WorkoutPlan; position: PlanPosition };
+  private planComponent?: Component;
   private chartCleanup: (() => void) | undefined;
   private body?: HTMLElement;
   private issues?: HTMLElement;
@@ -91,6 +95,8 @@ export class LedgerView extends ItemView {
     this.modal = undefined;
     this.chartCleanup?.();
     this.chartCleanup = undefined;
+    this.removePlanComponent();
+    this.activePlan = undefined;
     this.contentEl.empty();
     return Promise.resolve();
   }
@@ -103,7 +109,30 @@ export class LedgerView extends ItemView {
     this.render();
   }
 
-  private async reload(): Promise<void> {
+  async startPlan(file: TFile): Promise<void> {
+    try {
+      const { result, data } = await this.runExclusive(async () => {
+        const [markdown, data] = await Promise.all([this.app.vault.cachedRead(file), this.repository.read()]);
+        return { result: parseWorkoutPlan(markdown, progressExercises(data)), data };
+      });
+      if (this.closed) return;
+      if (!result.plan) {
+        this.openModal(new WorkoutPlanIssues(this.app, file, result.issues));
+        return;
+      }
+      this.data = data;
+      this.followCurrentDate();
+      this.chooseSessionForDate();
+      this.screen = 'workout';
+      const position = { sectionIndex: 0, exerciseIndex: 0 };
+      this.activePlan = { file, plan: result.plan, position };
+      this.movePlan(position);
+    } catch (error: unknown) {
+      this.status?.setText(`Could not open the workout plan. ${errorMessage(error)}`);
+    }
+  }
+
+  async reload(): Promise<void> {
     if (this.busy || this.closed) return;
     this.status?.setText('Loading workout data…');
     try {
@@ -177,6 +206,7 @@ export class LedgerView extends ItemView {
     if (this.closed || !this.body || !this.data) return;
     this.chartCleanup?.();
     this.chartCleanup = undefined;
+    this.removePlanComponent();
     this.body.empty();
     this.updateButtons();
     this.renderIssues();
@@ -201,6 +231,16 @@ export class LedgerView extends ItemView {
     const date = this.date;
     const session = data.workouts.find(({ workout }) => workout.id === this.sessionId);
     const exercise = data.exercises.find((entry) => entry.id === this.workoutExerciseId && !entry.archived);
+    if (this.activePlan) {
+      const { file, plan, position } = this.activePlan;
+      this.planComponent = this.addChild(new Component());
+      renderWorkoutPlan(body, {
+        app: this.app, component: this.planComponent, plan, filename: file.basename, sourcePath: file.path, position,
+        selectedExerciseId: exercise?.id,
+        available: new Set(data.exercises.filter((entry) => !entry.archived).map((entry) => entry.id)),
+        move: (next) => this.movePlan(next), stop: () => this.stopPlan(),
+      });
+    }
     renderWorkoutView(body, {
       app: this.app, date, session, exercise, data, weightUnit: this.weightUnit,
       noteDraft: this.noteDrafts.get(date, this.sessionId),
@@ -222,7 +262,9 @@ export class LedgerView extends ItemView {
         this.render();
       },
       chooseExercise: () => this.pickExercise(false),
+      choosePlan: this.activePlan ? undefined : () => this.pickPlan(),
       openModal: (modal) => this.openModal(modal),
+      onPersisted: (change) => this.advancePlan(change),
       persist: (change, original) => this.runExclusive(async () => {
         if ((change.kind === 'add' || !original) && resolveWorkoutDate(date, this.followsToday) !== date) {
           throw new Error('The date changed. Tap Today to continue, or pick a date to log an earlier workout.');
@@ -236,6 +278,40 @@ export class LedgerView extends ItemView {
         return saved;
       }),
     });
+  }
+
+  private pickPlan(): void {
+    if (this.busy) return;
+    this.openModal(new WorkoutPlanPicker(this.app, (file) => { void this.startPlan(file); }));
+  }
+
+  private movePlan(position: PlanPosition): void {
+    if (!this.activePlan || this.busy || this.closed) return;
+    const section = this.activePlan.plan.sections[position.sectionIndex];
+    if (!section) return;
+    this.activePlan.position = position;
+    this.workoutExerciseId = section.exercises[position.exerciseIndex]?.exerciseId;
+    if (this.workoutExerciseId) this.progressExerciseId = this.workoutExerciseId;
+    this.render();
+  }
+
+  private advancePlan(change: WorkoutChange): void {
+    if (!this.activePlan) return;
+    const { plan, position } = this.activePlan;
+    const next = advanceWorkoutPlan(plan, position, change);
+    if (next !== position) this.movePlan(next);
+  }
+
+  private stopPlan(): void {
+    if (this.busy) return;
+    this.activePlan = undefined;
+    this.render();
+  }
+
+  private removePlanComponent(): void {
+    if (!this.planComponent) return;
+    this.removeChild(this.planComponent);
+    this.planComponent = undefined;
   }
 
   private updateWorkout(data: LedgerData, saved: WorkoutFile): void {
@@ -301,7 +377,17 @@ export class LedgerView extends ItemView {
   }
 
   private selectExercise(id: string, progress: boolean): void {
-    if (!progress) this.workoutExerciseId = id;
+    if (!progress) {
+      this.workoutExerciseId = id;
+      if (this.activePlan) {
+        const { plan, position } = this.activePlan;
+        const { exercises } = plan.sections[position.sectionIndex];
+        if (exercises[position.exerciseIndex]?.exerciseId !== id) {
+          const exerciseIndex = exercises.findIndex((exercise) => exercise.exerciseId === id);
+          if (exerciseIndex >= 0) this.activePlan.position = { ...position, exerciseIndex };
+        }
+      }
+    }
     this.progressExerciseId = id;
     this.render();
   }

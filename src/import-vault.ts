@@ -7,6 +7,7 @@ import process from 'node:process';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
 import { readCatalogExercise } from './catalog.ts';
+import { appendExerciseGuides } from './exercise-guides.ts';
 import { exerciseFilename, journalFolder, journalFolders, legacyFolder, nextWorkoutSession, workoutFilename } from './journal-paths.ts';
 import {
   compareWorkouts, errorMessage, exerciseFrontmatter, isRecord, parseWorkout, readExercise,
@@ -210,17 +211,19 @@ async function writeNewFile(path: string, text: string): Promise<void> {
   }
 }
 
-async function saveNewExercise(root: string, path: string, exercise: Exercise): Promise<boolean> {
+async function saveNewExercise(root: string, path: string, exercise: Exercise): Promise<'written' | 'same' | 'occupied'> {
   const properties = exerciseFrontmatter(exercise);
   const absolute = join(root, path);
   try {
-    await writeNewFile(absolute, `---\n${stringify(properties, { lineWidth: 0 })}---\n`);
-    return true;
+    const markdown = appendExerciseGuides(`---\n${stringify(properties, { lineWidth: 0 })}---\n`, exercise);
+    await writeNewFile(absolute, markdown);
+    return 'written';
   } catch (error: unknown) {
     if (!hasErrorCode(error, 'EEXIST')) throw error;
     const existing = readNote(await readFile(absolute, 'utf8'));
-    if (isDeepStrictEqual(existing, readExercise(properties))) return false;
-    throw new Error('An exercise file already occupies this path. Replan the import and resolve the conflict.');
+    if (existing?.id !== exercise.id) return 'occupied';
+    if (isDeepStrictEqual(existing, readExercise(properties))) return 'same';
+    throw new Error('This exercise ID was saved with different content. Replan the import and resolve the conflict.');
   }
 }
 
@@ -264,8 +267,12 @@ export async function writeImportVault(vault: ImportVault, plan: WorkoutImportPl
       await ensureDirectory(root, folder, 'Exercises');
     }
     for (const exercise of plan.exercises) {
-      path = `${folder}/Exercises/${exerciseFilename(exercise)}`;
-      if (await saveNewExercise(root, path, exercise)) written.exercises.push({ exerciseId: exercise.id, path });
+      for (let number = 1; ; number++) {
+        path = `${folder}/Exercises/${exerciseFilename(exercise, number)}`;
+        const result = await saveNewExercise(root, path, exercise);
+        if (result === 'written') written.exercises.push({ exerciseId: exercise.id, path });
+        if (result !== 'occupied') break;
+      }
     }
 
     const pathsForDate = new Map<string, Set<string>>();

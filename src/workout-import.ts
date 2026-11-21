@@ -1,5 +1,5 @@
 import { progressExercises } from './analytics.ts';
-import { starterExercises } from './catalog.ts';
+import { starterExercises, suggestExercises } from './catalog.ts';
 import {
   combineAliases, distanceUnits, isDate, isDistanceUnit, isId, isRecord, isUnit, measurements, nameKey,
   parseWorkout, SCHEMA_VERSION, setMeasurements,
@@ -93,35 +93,6 @@ function readId(value: unknown, path: string, issues: ImportIssue[]): string | u
 function readName(value: unknown, path: string, issues: ImportIssue[]): string | undefined {
   if (typeof value === 'string' && value.trim() && value.trim().length <= 120 && !/[\r\n]/.test(value)) return value.trim();
   issue(issues, 'INVALID_NAME', path, 'Enter a nonempty name of at most 120 characters on one line.');
-}
-
-function suggestionsFor(query: string, exercises: Iterable<ExerciseChoice>): ExerciseChoice[] {
-  const key = nameKey(query);
-  const limit = Math.max(1, Math.min(3, Math.floor(key.length / 4)));
-  const ranked: Array<{ exercise: ExerciseChoice; distance: number }> = [];
-  for (const exercise of exercises) {
-    let distance = Infinity;
-    for (const name of [exercise.name, ...exercise.aliases].map(nameKey)) {
-      if (Math.abs(name.length - key.length) <= limit) distance = Math.min(distance, editDistance(key, name));
-      if (key.length >= 4 && name.includes(key)) distance = Math.min(distance, limit);
-    }
-    if (distance <= limit) ranked.push({ exercise, distance });
-  }
-  return ranked.sort((a, b) => a.distance - b.distance || a.exercise.name.localeCompare(b.exercise.name))
-    .slice(0, 5).map(({ exercise }) => exercise);
-}
-
-function editDistance(from: string, to: string): number {
-  let previous = Array.from({ length: to.length + 1 }, (_, index) => index);
-  for (let row = 1; row <= from.length; row++) {
-    const next = [row];
-    for (let column = 1; column <= to.length; column++) {
-      next.push(Math.min(previous[column] + 1, next[column - 1] + 1,
-        previous[column - 1] + (from[row - 1] === to[column - 1] ? 0 : 1)));
-    }
-    previous = next;
-  }
-  return previous[to.length];
 }
 
 async function stableId(kind: string, value: unknown): Promise<string> {
@@ -489,7 +460,7 @@ export async function planWorkoutImport(input: unknown, data: LedgerData): Promi
   const suggestionCache = new Map<string, ExerciseChoice[]>();
   const fuzzyMatches = (name: string): ExerciseChoice[] => {
     const key = nameKey(name);
-    const matches = suggestionCache.get(key) ?? suggestionsFor(name, catalog.byId.values());
+    const matches = suggestionCache.get(key) ?? suggestExercises(name, catalog.byId.values());
     suggestionCache.set(key, matches);
     return matches;
   };
