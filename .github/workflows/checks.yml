@@ -2,7 +2,7 @@ name: Checks
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
 
 permissions:
@@ -24,3 +24,41 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  obsidian-ui:
+    name: Obsidian UI (Playwright)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - name: Install Obsidian 1.15.0
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'Obsidian-1.15.0.exe'
+          $url = 'https://github.com/obsidianmd/obsidian-releases/releases/download/v1.15.0/Obsidian-1.15.0.exe'
+          Invoke-WebRequest -Uri $url -OutFile $installer -MaximumRetryCount 3
+          $sha256 = 'b0f60c75a12f96d54cb16b9fc32919966f2ebf029d9af75d67a19ba6555e1da0'
+          if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $sha256) {
+            throw 'Obsidian installer checksum mismatch.'
+          }
+          $installDir = Join-Path $env:RUNNER_TEMP 'Obsidian'
+          $install = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installDir" -WindowStyle Hidden -PassThru -Wait
+          if ($install.ExitCode -ne 0) { throw "Obsidian installer exited with $($install.ExitCode)." }
+          $executable = Join-Path $installDir 'Obsidian.exe'
+          if (!(Test-Path -LiteralPath $executable -PathType Leaf)) { throw "Obsidian was not installed at $executable." }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "OBSIDIAN_EXECUTABLE=$executable" -Encoding utf8
+      - run: npm run test:ui
+      - name: Upload Playwright diagnostics
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: obsidian-ui-results
+          path: test-results/
+          retention-days: 7
