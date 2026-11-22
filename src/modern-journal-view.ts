@@ -1,4 +1,4 @@
-import { ItemView, Notice, type TFile, type WorkspaceLeaf } from 'obsidian';
+import { Component, ItemView, Keymap, MarkdownRenderer, Notice, type TFile, type WorkspaceLeaf } from 'obsidian';
 import { mountJournal, type JournalAdapter, type MountedJournal } from '../standalone/app.ts';
 import { errorMessage, type WeightUnit } from './model.ts';
 
@@ -8,7 +8,7 @@ export type JournalScreen = 'today' | 'progress' | 'export';
 export class ModernJournalView extends ItemView {
   private journal?: MountedJournal;
 
-  constructor(leaf: WorkspaceLeaf, private readonly adapter: JournalAdapter, private readonly name: string) {
+  constructor(leaf: WorkspaceLeaf, private adapter: JournalAdapter | undefined, private readonly name: string) {
     super(leaf);
   }
 
@@ -18,18 +18,51 @@ export class ModernJournalView extends ItemView {
 
   async onOpen(): Promise<void> {
     this.containerEl.addClass('rep-journal-modern-view');
-    this.contentEl.empty();
     this.contentEl.addClass('rep-journal-modern-content');
-    const journalRoot = this.contentEl.createDiv();
-    const journalWindow = journalRoot.ownerDocument.defaultView;
-    if (!journalWindow) return;
-    this.journal = mountJournal(journalRoot, this.adapter, (tag) => journalWindow.createEl(tag));
-    await this.journal.ready;
-    if (!this.journal) return;
     this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
       if (leaf === this.leaf) void this.reload();
     }));
-    void this.refreshAutomaticCsv();
+    await this.setAdapter(this.adapter);
+  }
+
+  async setAdapter(adapter: JournalAdapter | undefined): Promise<void> {
+    this.journal?.dispose();
+    this.journal = undefined;
+    this.adapter = adapter;
+    this.contentEl.empty();
+    if (!adapter) {
+      this.contentEl.createEl('p', { text: 'Set a valid journal folder in the plugin settings.' });
+      return;
+    }
+    const journalRoot = this.contentEl.createDiv();
+    const journalWindow = journalRoot.ownerDocument.defaultView;
+    if (!journalWindow) return;
+    const journal = mountJournal(journalRoot, {
+      ...adapter,
+      renderPlanMarkdown: (host, markdown, sourcePath) => this.renderPlanMarkdown(host, markdown, sourcePath),
+    }, (tag) => journalWindow.createEl(tag));
+    this.journal = journal;
+    await journal.ready;
+    if (this.journal === journal) void this.refreshAutomaticCsv();
+  }
+
+  private renderPlanMarkdown(host: HTMLElement, markdown: string, sourcePath: string): () => void {
+    const owner = this.addChild(new Component());
+    host.addClass('markdown-rendered');
+    const openLink = (event: MouseEvent, link: HTMLElement) => {
+      const target = link.dataset.href;
+      if (!target || event.defaultPrevented || event.button > 1) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void this.app.workspace.openLinkText(target, sourcePath, Keymap.isModEvent(event) || 'tab')
+        .catch((error: unknown) => new Notice(`Could not open the plan link. ${errorMessage(error)}`));
+    };
+    for (const type of ['click', 'auxclick'] as const) {
+      host.on(type, 'a.internal-link', openLink);
+      owner.register(() => host.off(type, 'a.internal-link', openLink));
+    }
+    void MarkdownRenderer.render(this.app, markdown, host, sourcePath, owner).catch(() => host.setText(markdown));
+    return () => this.removeChild(owner);
   }
 
   onClose(): Promise<void> {
@@ -55,6 +88,10 @@ export class ModernJournalView extends ItemView {
     await this.journal?.reload(force);
   }
 
+  async refreshVaultNotes(): Promise<void> {
+    await this.journal?.refreshVaultNotes();
+  }
+
   setWeightUnit(unit: WeightUnit): void { this.journal?.setWeightUnit(unit); }
 
   async refresh(): Promise<void> {
@@ -64,7 +101,7 @@ export class ModernJournalView extends ItemView {
 
   private async refreshAutomaticCsv(): Promise<void> {
     try {
-      await this.adapter.refreshAutomaticCsv();
+      await this.adapter?.refreshAutomaticCsv();
     } catch (error: unknown) {
       new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`);
     }

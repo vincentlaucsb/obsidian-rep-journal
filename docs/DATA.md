@@ -1,6 +1,6 @@
 # Rep Journal data format
 
-The vault contains the source data. Files under `Rep Journal/Exports` are snapshots. The plugin reads records from `Exercises` and `Workouts` under `Rep Journal` and the earlier `Set Ledger` folder. Existing records are edited in place. New files go under `Rep Journal` when it exists or when starting with an empty vault. A vault with only the earlier folder continues writing there.
+The vault contains the source data. `Exercises`, `Workouts`, and `Exports` live under the journal folder, which defaults to `Rep Journal`. Set **Journal folder** in the Obsidian plugin settings or create `.rep-journal.json` at the vault root with a JSON object such as `{"journalFolder":"Training/Rep Journal"}`. The Obsidian plugin, standalone app, and importer all use this setting. Use the same setting on each device.
 
 ## Exercise notes
 
@@ -28,7 +28,7 @@ An older note without `exercise_tags` shows the starter tags if its name or alia
 
 Each session has `schemaVersion`, `id`, local `date` (`YYYY-MM-DD`), UTC `createdAt`, `notes`, and an ordered `sets` array. Several sessions can have the same date. Each set stores `id`, `exerciseId`, `exerciseName` at entry, and the measurements recorded for that set.
 
-New sessions use `YYYY-MM-DD.json`, followed by `YYYY-MM-DD-2.json`, `YYYY-MM-DD-3.json`, and so on for the same day. Existing UUID-based files count toward numbering and keep their filenames. Session IDs stay inside the files. Devices working offline can independently pick the same filename, so sync before starting another session on a different device that day.
+New sessions go under `Workouts/YYYY` using the workout date, including for backdated sessions. Filenames use `YYYY-MM-DD.json`, followed by `YYYY-MM-DD-2.json`, `YYYY-MM-DD-3.json`, and so on for the same day. Existing files for that date directly under `Workouts` or in year subfolders count toward numbering, including files with UUIDs in their names. Edits keep existing sessions in place. Session IDs stay inside the files. Devices working offline can independently pick the same filename, so sync before starting another session on a different device that day.
 
 | Set field | Value |
 | --- | --- |

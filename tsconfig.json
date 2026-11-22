@@ -8,7 +8,8 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "allowArbitraryExtensions": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "standalone/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "standalone/**/*.ts", "standalone/**/*.svelte", "scripts/**/*.ts", "tests/**/*.ts"]
 }

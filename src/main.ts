@@ -1,16 +1,26 @@
-import { FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, type SettingDefinitionItem, type TFile, type WorkspaceLeaf } from 'obsidian';
-import { errorMessage, isRecord, isUnit, type ExerciseNote, type WeightUnit } from './model.ts';
+import { FileSystemAdapter, MarkdownView, Notice, Platform, Plugin, PluginSettingTab, Setting, TFolder, type SettingDefinitionItem, type TAbstractFile, type TFile, type WorkspaceLeaf } from 'obsidian';
+import { journalFolder, journalSettingsFile, normalizeJournalFolder, parseJournalFolder } from './journal-paths.ts';
+import { errorMessage, isRecord, isUnit, makeId, type ExerciseNote, type WeightUnit } from './model.ts';
 import { MODERN_JOURNAL_VIEW, ModernJournalView, type JournalScreen } from './modern-journal-view.ts';
 import { createObsidianJournalAdapter } from './obsidian-journal-adapter.ts';
 import { drawObsidianStrengthChart } from './obsidian-strength-chart.ts';
+import { affectsExerciseNotes } from './repo/exercise-repository.ts';
+import { affectsDatedPlanFolder, datedPlanDate } from './repo/plan-repository.ts';
 import { LedgerRepository } from './repository.ts';
 
 const legacyView = 'set-ledger-workout-view';
+declare const require: (id: 'node:fs/promises') => typeof import('node:fs/promises');
 
 export default class RepJournalPlugin extends Plugin {
   private opening = false;
   private tidyingExerciseNotes = false;
   private preferences: Record<string, unknown> = {};
+  private repository?: LedgerRepository;
+  private adapter?: ReturnType<RepJournalPlugin['createAdapter']>;
+
+  get journalFolder(): string {
+    return this.repository?.root ?? '';
+  }
 
   get weightUnit(): WeightUnit {
     const unit = this.preferences.weightUnit;
@@ -20,20 +30,22 @@ export default class RepJournalPlugin extends Plugin {
   async onload(): Promise<void> {
     const stored: unknown = await this.loadData();
     if (isRecord(stored)) this.preferences = stored;
-    const repository = new LedgerRepository(this.app.vault);
     const vault = this.app.vault;
-    const vaultKey = vault.adapter instanceof FileSystemAdapter ? vault.adapter.getBasePath() : vault.getName();
-    const adapter = createObsidianJournalAdapter(vault, repository, {
-      vaultKey: `obsidian:${vaultKey}`,
-      weightUnit: () => this.weightUnit,
-      reportExportError: (error) => { new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`); },
-      openExerciseNote: (exercise) => { void this.openExerciseNote(exercise); },
-    });
+    try {
+      const folder = await vault.adapter.exists(journalSettingsFile)
+        ? parseJournalFolder(await vault.adapter.read(journalSettingsFile))
+        : journalFolder;
+      this.repository = new LedgerRepository(vault, folder);
+    } catch (error: unknown) {
+      new Notice(`Could not read ${journalSettingsFile}. ${errorMessage(error)}`);
+    }
+    this.adapter = this.createAdapter();
     const createJournalView = (leaf: WorkspaceLeaf): ModernJournalView =>
-      new ModernJournalView(leaf, { ...adapter, drawStrengthChart: drawObsidianStrengthChart }, this.manifest.name);
+      new ModernJournalView(leaf, this.adapter, this.manifest.name);
     this.registerView(MODERN_JOURNAL_VIEW, createJournalView);
     // Restore saved layouts from the Set Ledger preview using the shared journal.
     this.registerView(legacyView, createJournalView);
+    this.watchJournalNotes();
     this.addSettingTab(new RepJournalSettings(this));
     this.addRibbonIcon('dumbbell', 'Open workout log', () => { void this.openModern(); });
     this.addCommand({ id: 'open-workout-log', name: 'Open workout log', callback: () => { void this.openModern(); } });
@@ -54,7 +66,113 @@ export default class RepJournalPlugin extends Plugin {
         return true;
       },
     });
-    this.addCommand({ id: 'tidy-exercise-notes', name: 'Tidy exercise notes', callback: () => { void this.tidyExerciseNotes(repository); } });
+    this.addCommand({ id: 'tidy-exercise-notes', name: 'Tidy exercise notes', callback: () => {
+      if (this.repository) void this.tidyExerciseNotes(this.repository);
+      else new Notice('Set a valid journal folder in the plugin settings.');
+    } });
+  }
+
+  private createAdapter() {
+    const repository = this.repository;
+    if (!repository) return;
+    const vault = this.app.vault;
+    const vaultKey = vault.adapter instanceof FileSystemAdapter ? vault.adapter.getBasePath() : vault.getName();
+    const adapter = createObsidianJournalAdapter(vault, repository, {
+      vaultKey: repository.root === journalFolder ? `obsidian:${vaultKey}` : JSON.stringify(['obsidian', vaultKey, repository.root]),
+      weightUnit: () => this.weightUnit,
+      reportExportError: (error) => { new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`); },
+      openExerciseNote: (exercise) => { void this.openExerciseNote(exercise); },
+    });
+    return { ...adapter, drawStrengthChart: drawObsidianStrengthChart };
+  }
+
+  private journalViews(): ModernJournalView[] {
+    const { workspace } = this.app;
+    const leaves = new Set([...workspace.getLeavesOfType(MODERN_JOURNAL_VIEW), ...workspace.getLeavesOfType(legacyView)]);
+    return [...leaves].map(({ view }) => view).filter((view) => view instanceof ModernJournalView);
+  }
+
+  async updateJournalFolder(value: string): Promise<void> {
+    const root = normalizeJournalFolder(value);
+    const previous = this.journalFolder;
+    if (root === previous) return;
+    const overlapsExercises = (inner: string, outer: string): boolean =>
+      `${inner.toLowerCase()}/`.startsWith(`${outer.toLowerCase()}/exercises/`);
+    if (previous && (overlapsExercises(root, previous) || overlapsExercises(previous, root))) {
+      throw new Error('Choose a journal folder outside the other journal’s Exercises folder.');
+    }
+    const vault = this.app.vault;
+    const repository = new LedgerRepository(vault, root);
+    const settings = await this.readJournalSettings();
+    await this.publishJournalSettings({ ...settings, journalFolder: root });
+    this.repository = repository;
+    const adapter = this.createAdapter();
+    this.adapter = adapter;
+    await Promise.all(this.journalViews().map((view) => view.setAdapter(adapter)));
+  }
+
+  private async publishJournalSettings(settings: Record<string, unknown>): Promise<void> {
+    const { adapter } = this.app.vault;
+    const content = `${JSON.stringify(settings, null, 2)}\n`;
+    if (Platform.isDesktop && adapter instanceof FileSystemAdapter) {
+      // The desktop vault adapter's rename refuses an existing destination.
+      const fs = require('node:fs/promises');
+      const temporary = `${journalSettingsFile}.${makeId()}.tmp`;
+      const stagingPath = adapter.getFullPath(temporary);
+      const staging = await fs.open(stagingPath, 'wx');
+      try {
+        try {
+          await staging.writeFile(content);
+        } finally {
+          await staging.close();
+        }
+        await fs.rename(stagingPath, adapter.getFullPath(journalSettingsFile));
+      } finally {
+        await fs.unlink(stagingPath).catch(() => undefined);
+      }
+      return;
+    }
+    if (await adapter.exists(journalSettingsFile)) await adapter.process(journalSettingsFile, () => content);
+    else await adapter.write(journalSettingsFile, content);
+  }
+
+  private async readJournalSettings(): Promise<Record<string, unknown>> {
+    const { adapter } = this.app.vault;
+    if (!await adapter.exists(journalSettingsFile)) return {};
+    const text = await adapter.read(journalSettingsFile);
+    try {
+      const settings: unknown = JSON.parse(text);
+      return isRecord(settings) ? settings : {};
+    } catch (error: unknown) {
+      if (!(error instanceof SyntaxError)) throw error;
+      return {};
+    }
+  }
+
+  private watchJournalNotes(): void {
+    const { vault } = this.app;
+    const hostWindow = window;
+    let timer: number | undefined;
+    const refresh = (): void => {
+      hostWindow.clearTimeout(timer);
+      timer = hostWindow.setTimeout(() => {
+        timer = undefined;
+        for (const view of this.journalViews()) void view.refreshVaultNotes();
+      }, 100);
+    };
+    const affects = (file: TAbstractFile, path = file.path): boolean => {
+      const root = this.repository?.root;
+      return !!root && (affectsExerciseNotes(file, root, path) ||
+        (file instanceof TFolder ? affectsDatedPlanFolder(path, root) : !!datedPlanDate(path, root)));
+    };
+    const onChange = (file: TAbstractFile): void => { if (affects(file)) refresh(); };
+    this.registerEvent(vault.on('create', onChange));
+    this.registerEvent(vault.on('modify', onChange));
+    this.registerEvent(vault.on('delete', onChange));
+    this.registerEvent(vault.on('rename', (file, oldPath) => {
+      if (affects(file) || affects(file, oldPath)) refresh();
+    }));
+    this.register(() => hostWindow.clearTimeout(timer));
   }
 
   private async tidyExerciseNotes(repository: LedgerRepository): Promise<void> {
@@ -65,9 +183,6 @@ export default class RepJournalPlugin extends Plugin {
       const summary = `Exercise notes: ${result.renamed} renamed, ${result.guidesAdded} updated with guide links.`;
       const issues = result.issues.length ? ` ${result.issues.length} need attention. ${result.issues[0]}` : '';
       new Notice(summary + issues, issues ? 10000 : 6000);
-      for (const { view } of this.app.workspace.getLeavesOfType(MODERN_JOURNAL_VIEW)) {
-        if (view instanceof ModernJournalView) await view.reload();
-      }
     } catch (error: unknown) {
       new Notice(`Could not tidy exercise notes. ${errorMessage(error)}`);
     } finally {
@@ -124,6 +239,7 @@ export default class RepJournalPlugin extends Plugin {
 }
 
 const weightSetting = { name: 'Weight unit', desc: 'Used for new sets and estimated 1RM. Logged sets keep their original units.' };
+const folderSetting = { name: 'Journal folder', desc: 'Path relative to the vault. Saving opens that journal in all workout log tabs.' };
 
 class RepJournalSettings extends PluginSettingTab {
   constructor(private readonly journal: RepJournalPlugin) {
@@ -131,12 +247,40 @@ class RepJournalSettings extends PluginSettingTab {
   }
 
   getSettingDefinitions(): SettingDefinitionItem[] {
-    return [{ ...weightSetting, render: (setting) => { this.addWeightUnitControl(setting); } }];
+    return [
+      { ...folderSetting, render: (setting) => { this.addJournalFolderControl(setting); } },
+      { ...weightSetting, render: (setting) => { this.addWeightUnitControl(setting); } },
+    ];
   }
 
   display(): void {
     this.containerEl.empty();
+    this.addJournalFolderControl(new Setting(this.containerEl).setName(folderSetting.name).setDesc(folderSetting.desc));
     this.addWeightUnitControl(new Setting(this.containerEl).setName(weightSetting.name).setDesc(weightSetting.desc));
+  }
+
+  private addJournalFolderControl(setting: Setting): void {
+    let value = this.journal.journalFolder;
+    setting.addText((control) => {
+      control.setPlaceholder(journalFolder).setValue(value).onChange((next) => { value = next; });
+      control.inputEl.setAttribute('aria-label', folderSetting.name);
+      setting.addButton((button) => {
+        button.setButtonText('Save folder').onClick(async () => {
+          button.setDisabled(true);
+          control.setDisabled(true);
+          try {
+            await this.journal.updateJournalFolder(value);
+            value = this.journal.journalFolder;
+            control.setValue(value);
+          } catch (error: unknown) {
+            new Notice(`Could not save the journal folder. ${errorMessage(error)}`);
+          } finally {
+            control.setDisabled(false);
+            button.setDisabled(false);
+          }
+        });
+      });
+    });
   }
 
   private addWeightUnitControl(setting: Setting): void {

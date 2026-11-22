@@ -1,6 +1,6 @@
 import { exerciseHistory, progressExercises, strengthTrend } from './analytics.ts';
 import { matchesExerciseName, pickerTags, starterExercises } from './catalog.ts';
-import { journalFolders } from './journal-paths.ts';
+import { journalFolder } from './journal-paths.ts';
 import {
   combineAliases, describeSet, exerciseFrontmatter, isDate, isDistanceUnit, isId, isRecord, measurements, parseDuration, readExercise, setMeasurements,
   tagGroups, validateSet, type DistanceUnit, type Exercise, type ExerciseChoice, type ExerciseNote, type ExerciseTag,
@@ -51,15 +51,15 @@ export interface ExerciseEditInput {
   };
 }
 
-export function isWorkoutPlanPath(path: string): boolean {
+export function isWorkoutPlanPath(path: string, root = journalFolder): boolean {
   return !path.split('/').some((part) => part.startsWith('.')) &&
-    !journalFolders.some((root) => ['Exercises', 'Exports', 'Workouts'].some((folder) => path.startsWith(`${root}/${folder}/`)));
+    !['Exercises', 'Exports', 'Workouts'].some((folder) => path.startsWith(`${root}/${folder}/`));
 }
 
-export function planNoteFrom(path: string, markdown: string, exercises: readonly ExerciseChoice[]): PlanNote | undefined {
-  if (!/^ {0,3}##\s+\S/m.test(markdown) || !/^ {0,3}###\s+\S/m.test(markdown)) return;
+export function planNoteFrom(path: string, markdown: string, exercises: readonly ExerciseChoice[], includeInvalid = false): PlanNote | undefined {
+  if (!includeInvalid && (!/^ {0,3}##\s+\S/m.test(markdown) || !/^ {0,3}###\s+\S/m.test(markdown))) return;
   const result = parseWorkoutPlan(markdown, exercises);
-  if (result.plan || /(?:plan|routine|superset|workout)/i.test(path)) {
+  if (result.plan || includeInvalid || /(?:plan|routine|superset|workout)/i.test(path)) {
     return { path, title: result.plan?.title ?? path.slice(path.lastIndexOf('/') + 1, -3) };
   }
 }

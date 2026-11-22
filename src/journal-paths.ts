@@ -1,13 +1,32 @@
-import { isId, type Exercise } from './model.ts';
+import { isId, isRecord, type Exercise } from './model.ts';
 
 export const journalFolder = 'Rep Journal';
-export const legacyFolder = 'Set Ledger';
-export const journalFolders = [journalFolder, legacyFolder] as const;
+export const journalSettingsFile = '.rep-journal.json';
+
+const windowsDevice = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
+
+export function normalizeJournalFolder(value: string): string {
+  const path = value.trim().replace(/\\/g, '/');
+  if (path.split('/').some((part) => !part || /^[. ]/.test(part) || /[. ]$/.test(part) ||
+      /[<>:"|?*#[\]\p{Cc}]/u.test(part) || windowsDevice.test(part))) {
+    throw new Error('Enter a vault-relative folder path with valid folder names.');
+  }
+  return path;
+}
+
+export function parseJournalFolder(text: string): string {
+  const settings: unknown = JSON.parse(text);
+  if (!isRecord(settings)) throw new Error('Expected a journal settings object.');
+  const value = settings.journalFolder;
+  if (value === undefined) return journalFolder;
+  if (typeof value !== 'string') throw new Error('The journal folder setting must be a string.');
+  return normalizeJournalFolder(value);
+}
 
 export function exerciseFilename(exercise: Pick<Exercise, 'name'>, number = 1): string {
   const name = exercise.name.replace(/[<>:"/\\|?*#[\]\p{Cc}]+/gu, ' ').replace(/\s+/g, ' ')
     .replace(/^[. ]+|[. ]+$/g, '') || 'Exercise';
-  const basename = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(name) ? `Exercise - ${name}` : name;
+  const basename = windowsDevice.test(name) ? `Exercise - ${name}` : name;
   return `${basename}${number > 1 ? ` (${number})` : ''}.md`;
 }
 

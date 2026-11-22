@@ -51,7 +51,10 @@ export class MemoryVault {
     exists: async (path: string): Promise<boolean> => this.files.has(path) || this.folders.has(path),
     list: async (path: string): Promise<{ files: string[]; folders: string[] }> => {
       if (!this.folders.has(path)) throw new Error('Folder missing');
-      return { files: [...this.files.keys()].filter((file) => this.parentPath(file) === path), folders: [] };
+      return {
+        files: [...this.files.keys()].filter((file) => this.parentPath(file) === path),
+        folders: [...this.folders.keys()].filter((folder) => this.parentPath(folder) === path),
+      };
     },
     read: async (path: string): Promise<string> => this.entry(path).text,
     write: async (path: string, text: string): Promise<void> => { this.entry(path).text = text; },

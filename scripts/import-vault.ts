@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
 import { readCatalogExercise } from '../src/catalog.ts';
 import { appendExerciseGuides } from '../src/exercise-guides.ts';
-import { exerciseFilename, journalFolder, journalFolders, legacyFolder, nextWorkoutSession, workoutFilename } from '../src/journal-paths.ts';
+import { exerciseFilename, journalFolder, journalSettingsFile, nextWorkoutSession, normalizeJournalFolder, parseJournalFolder, workoutFilename } from '../src/journal-paths.ts';
 import {
   compareWorkouts, errorMessage, exerciseFrontmatter, isRecord, parseWorkout, readExercise,
   type Exercise, type ExerciseNote, type LedgerData, type Workout, type WorkoutFile,
@@ -17,7 +17,7 @@ import { type ImportIssue, type WorkoutImportPlan } from '../src/workout-import.
 
 interface ImportVault {
   root: string;
-  folder: typeof journalFolder | typeof legacyFolder;
+  folder: string;
   data: LedgerData;
   issues: ImportIssue[];
 }
@@ -41,6 +41,22 @@ async function directoryExists(path: string): Promise<boolean> {
   }
 }
 
+export async function readJournalFolder(root: string): Promise<string> {
+  const settings = join(root, journalSettingsFile);
+  try {
+    if (!(await lstat(settings)).isFile()) throw new Error(`Expected a file at ${journalSettingsFile}.`);
+    return parseJournalFolder(await readFile(settings, 'utf8'));
+  } catch (error: unknown) {
+    if (hasErrorCode(error, 'ENOENT')) return journalFolder;
+    throw error;
+  }
+}
+
+function directoryPrefixes(path: string): string[] {
+  const parts = path.split('/');
+  return parts.map((_, index) => parts.slice(0, index + 1).join('/'));
+}
+
 export function exerciseNoteHeader(text: string): RegExpExecArray | null {
   const header = /^\uFEFF?---[ \t]*\r?\n([\s\S]*?)^---[ \t]*\r?$/m.exec(text);
   if (header?.index === 0) return header;
@@ -55,17 +71,20 @@ function readNote(text: string): Exercise | null {
   return header ? readCatalogExercise(parse(header[1])) : null;
 }
 
-async function listRecords(root: string, section: string, extension: string, recursive: boolean): Promise<string[]> {
-  if (!await directoryExists(join(root, section))) return [];
+async function listRecords(root: string, section: string, kind: 'exercises' | 'workouts'): Promise<string[]> {
+  for (const directory of directoryPrefixes(section)) {
+    if (!await directoryExists(join(root, directory))) return [];
+  }
   const paths: string[] = [];
   const pending = [section];
+  const extension = kind === 'exercises' ? '.md' : '.json';
   while (pending.length) {
     const folder = pending.pop();
     if (!folder) break;
     const entries = await readdir(join(root, folder), { withFileTypes: true });
     for (const entry of entries) {
       const path = `${folder}/${entry.name}`;
-      if (recursive && entry.isDirectory()) pending.push(path);
+      if (entry.isDirectory() && (kind === 'exercises' || (folder === section && /^\d{4}$/.test(entry.name)))) pending.push(path);
       else if (entry.isFile() && entry.name.endsWith(extension)) paths.push(path);
     }
   }
@@ -146,30 +165,21 @@ export async function lockImportVault(root: string): Promise<
   return { release: () => unlink(path) };
 }
 
-export async function readImportVault(root: string): Promise<ImportVault> {
+export async function readImportVault(root: string, configuredFolder?: string): Promise<ImportVault> {
+  const folder = configuredFolder === undefined ? await readJournalFolder(root) : normalizeJournalFolder(configuredFolder);
   const issues: ImportIssue[] = [];
   const exercisePaths: string[] = [];
   const workoutPaths: string[] = [];
-  const roots = new Set<string>();
-  for (const folder of journalFolders) {
+  const sections = [
+    { name: 'Exercises', kind: 'exercises', paths: exercisePaths },
+    { name: 'Workouts', kind: 'workouts', paths: workoutPaths },
+  ] as const;
+  for (const section of sections) {
+    const path = `${folder}/${section.name}`;
     try {
-      if (!await directoryExists(join(root, folder))) continue;
-      roots.add(folder);
+      section.paths.push(...await listRecords(root, path, section.kind));
     } catch (error: unknown) {
-      issues.push({ code: 'VAULT_DIRECTORY_UNREADABLE', path: folder, message: errorMessage(error) });
-      continue;
-    }
-    const sections = [
-      { name: 'Exercises', extension: '.md', recursive: true, paths: exercisePaths },
-      { name: 'Workouts', extension: '.json', recursive: false, paths: workoutPaths },
-    ];
-    for (const section of sections) {
-      const path = `${folder}/${section.name}`;
-      try {
-        section.paths.push(...await listRecords(root, path, section.extension, section.recursive));
-      } catch (error: unknown) {
-        issues.push({ code: 'VAULT_DIRECTORY_UNREADABLE', path, message: errorMessage(error) });
-      }
+      issues.push({ code: 'VAULT_DIRECTORY_UNREADABLE', path, message: errorMessage(error) });
     }
   }
 
@@ -184,7 +194,7 @@ export async function readImportVault(root: string): Promise<ImportVault> {
   ]);
   issues.sort((a, b) => a.path.localeCompare(b.path));
   return {
-    root, folder: roots.has(journalFolder) || !roots.has(legacyFolder) ? journalFolder : legacyFolder,
+    root, folder,
     data: {
       exercises: exercises.sort((a, b) => a.name.localeCompare(b.name)),
       workouts: workouts.sort((a, b) => compareWorkouts(a.workout, b.workout)),
@@ -225,6 +235,7 @@ async function saveNewExercise(root: string, path: string, exercise: Exercise): 
     return 'written';
   } catch (error: unknown) {
     if (!hasErrorCode(error, 'EEXIST')) throw error;
+    if (!(await lstat(absolute)).isFile()) throw new Error('Expected an exercise note file.');
     const existing = readNote(await readFile(absolute, 'utf8'));
     if (existing?.id !== exercise.id) return 'occupied';
     if (isDeepStrictEqual(existing, readExercise(properties))) return 'same';
@@ -239,6 +250,7 @@ async function saveNewWorkout(root: string, path: string, workout: Workout): Pro
     return 'written';
   } catch (error: unknown) {
     if (!hasErrorCode(error, 'EEXIST')) throw error;
+    if (!(await lstat(absolute)).isFile()) throw new Error('Expected a workout file.');
     const existing = parseWorkout(await readFile(absolute, 'utf8'));
     if (existing.id !== workout.id) return 'occupied';
     if (isDeepStrictEqual(existing, workout)) return 'same';
@@ -247,7 +259,7 @@ async function saveNewWorkout(root: string, path: string, workout: Workout): Pro
 }
 
 export async function ensureDirectory(root: string, folder: string, section: string): Promise<void> {
-  for (const path of [folder, `${folder}/${section}`]) {
+  for (const path of directoryPrefixes(`${folder}/${section}`)) {
     const absolute = join(root, path);
     if (await directoryExists(absolute)) continue;
     try {
@@ -287,16 +299,15 @@ export async function writeImportVault(vault: ImportVault, plan: WorkoutImportPl
       existingPaths.add(existingPath);
       pathsForDate.set(date, existingPaths);
     }
-    if (plan.workouts.length) {
-      path = `${folder}/Workouts`;
-      await ensureDirectory(root, folder, 'Workouts');
-    }
     for (const workout of plan.workouts) {
+      const section = `Workouts/${workout.date.slice(0, 4)}`;
+      path = `${folder}/${section}`;
+      await ensureDirectory(root, folder, section);
       const paths = pathsForDate.get(workout.date) ?? new Set<string>();
       pathsForDate.set(workout.date, paths);
       let session = nextWorkoutSession(workout.date, [...paths]);
       while (true) {
-        path = `${folder}/Workouts/${workoutFilename(workout.date, session)}`;
+        path = `${folder}/${section}/${workoutFilename(workout.date, session)}`;
         const result = await saveNewWorkout(root, path, workout);
         paths.add(path);
         if (result === 'written') written.workouts.push({ workoutId: workout.id, path });

@@ -1,13 +1,72 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, rmdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { stringify } from 'yaml';
 import { toCsv, toJson } from '../src/exports.ts';
 import { readImportVault } from '../scripts/import-vault.ts';
+import { journalSettingsFile } from '../src/journal-paths.ts';
+import { maxPlanBytes } from '../src/journal-workflow.ts';
 import { changeWorkout, createWorkout, exerciseFrontmatter, makeId, parseWorkout, SCHEMA_VERSION, type ExerciseDetails } from '../src/model.ts';
+import type { DatedPlanNote } from '../src/repo/plan-repository.ts';
 import { startStandalone } from '../scripts/standalone-server.ts';
+
+void test('standalone journal discovers dated plans without reading outside the configured structure', async (context) => {
+  const temporaryBase = resolve(tmpdir());
+  const fixture = await mkdtemp(join(temporaryBase, 'rep-journal-standalone-'));
+  context.after(async () => {
+    assert.equal(dirname(resolve(fixture)), temporaryBase);
+    assert.match(basename(fixture), /^rep-journal-standalone-/);
+    await rm(fixture, { recursive: true, force: true });
+  });
+  const root = join(fixture, 'Vault');
+  const outside = join(fixture, 'Outside');
+  const journalFolder = 'Training/Strength';
+  const year = `${journalFolder}/Plans/2024`;
+  const first = `${year}/2024-02-29.md`;
+  const second = `${year}/2024-02-28 - .5 Mile and Bench.md`;
+  const invalid = `${year}/2024-03-01.md`;
+  const manual = 'Templates/2024-02-29.md';
+  const markdown = '# Strength\n\n## Main\n\n### Bench\n';
+  const exerciseId = makeId();
+  const exercises = join(root, journalFolder, 'Exercises');
+  await mkdir(outside, { recursive: true });
+  await mkdir(exercises, { recursive: true });
+  await writeFile(join(root, journalSettingsFile), JSON.stringify({ journalFolder }));
+  await writeFile(join(exercises, 'Bench Press.md'), `---\n${stringify(exerciseFrontmatter({
+    id: exerciseId, name: 'Bench Press', aliases: ['Bench'], equipment: '', loadMode: 'weight', unit: 'lb', archived: false,
+  }))}---\n`);
+  for (const path of [first, second, manual, `${journalFolder}/Plans/2024-02-29.md`, `${year}/Nested/2024-02-29.md`,
+    'Rep Journal/Plans/2024/2024-02-29.md', `${year}/2025-02-28.md`, `${year}/2024-02-30.md`, `${year}/2024-02-291.md`]) {
+    const target = join(root, path);
+    await mkdir(dirname(target), { recursive: true });
+    await writeFile(target, markdown);
+  }
+  await writeFile(join(root, invalid), '# Missing sections\n');
+  await writeFile(join(root, year, '2024-03-02.md'), markdown + ' '.repeat(maxPlanBytes));
+  await writeFile(join(outside, '2025-03-01.md'), markdown);
+  await symlink(outside, join(root, journalFolder, 'Plans', '2025'), 'junction');
+
+  const { server, origin } = await startStandalone(root, 0);
+  context.after(() => new Promise<void>((complete, reject) => server.close((error) => { if (error) reject(error); else complete(); })));
+  const readJournal = async () => {
+    const response = await fetch(`${origin}/api/journal`);
+    assert.equal(response.status, 200);
+    return await response.json() as { datedPlans: DatedPlanNote[]; issues: string[] };
+  };
+  const data = await readJournal();
+  assert.deepEqual(data.issues, []);
+  assert.deepEqual(data.datedPlans.map(({ date, path, title, plan }) => [date, path, title, plan.sections[0].exercises[0].exerciseId]),
+    [['2024-02-28', second, 'Strength', exerciseId], ['2024-02-29', first, 'Strength', exerciseId]]);
+  const plans = await (await fetch(`${origin}/api/plans`)).json() as Array<{ path: string }>;
+  assert.ok(plans.some(({ path }) => path === manual));
+  assert.ok(plans.some(({ path }) => path === invalid));
+  await writeFile(join(root, second), markdown.replace('Strength', 'Workout!'));
+  assert.equal((await readJournal()).datedPlans[0].title, 'Workout!');
+  await rm(join(root, first));
+  assert.deepEqual((await readJournal()).datedPlans.map(({ path }) => path), [second]);
+});
 
 void test('standalone loads existing files and writes only the selected or new workout', async (context) => {
   const temporaryBase = resolve(tmpdir());
@@ -23,24 +82,32 @@ void test('standalone loads existing files and writes only the selected or new w
   };
   const exerciseId = makeId();
   const rowId = makeId();
+  const journalFolder = 'Training/Strength';
+  await writeFile(join(root, journalSettingsFile), JSON.stringify({ journalFolder }));
   const writeExercise = async (folder: string, name: string, details: ExerciseDetails, id: string) => {
     const path = join(root, folder, 'Exercises');
     await mkdir(path, { recursive: true });
     await writeFile(join(path, name + '.md'), `---\n${stringify({ ...exerciseFrontmatter({ ...details, id }), custom: 'Keep me' })}---\n\n## Form cue\nKeep the note body.\n`);
   };
-  await writeExercise('Rep Journal', exercise.name, exercise, exerciseId);
-  await writeExercise('Set Ledger', 'Row', { ...exercise, name: 'Row', aliases: [] }, rowId);
+  await writeExercise(journalFolder, exercise.name, exercise, exerciseId);
+  await writeExercise(journalFolder, 'Row', { ...exercise, name: 'Row', aliases: [] }, rowId);
+  await writeExercise('Set Ledger', 'Ignored', { ...exercise, name: 'Ignored', aliases: [] }, makeId());
   const history = changeWorkout(createWorkout('2024-01-01'), { kind: 'add', set: {
     id: makeId(), exerciseId, exerciseName: exercise.name, load: { mode: 'assistance', value: 90, unit: 'lb' },
     reps: 8, warmup: true, durationSeconds: 42, distance: { value: 20, unit: 'yd' },
   } });
-  const oldPath = join(root, 'Set Ledger', 'Workouts', '2024-01-01.json');
+  const oldPath = join(root, journalFolder, 'Workouts', '2024-01-01.json');
   await mkdir(dirname(oldPath), { recursive: true });
   await writeFile(oldPath, JSON.stringify(history));
   await mkdir(join(root, 'Exercise'));
   const planPath = 'Exercise/Upper Body Superset.md';
   const planText = '# Upper body\n\n## Pair\nMode: superset\n\n### Bench\n8–10 reps\n\n### Row\n10–12 reps\n';
   await writeFile(join(root, planPath), planText);
+  for (const section of ['Exercises', 'Workouts', 'Exports']) {
+    const directory = join(root, journalFolder, section);
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, 'Excluded plan.md'), planText);
+  }
 
   const { server, origin } = await startStandalone(root, 0, 'kg');
   context.after(() => new Promise<void>((complete, reject) => server.close((error) => { if (error) reject(error); else complete(); })));
@@ -56,7 +123,9 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.equal(icons.status, 200);
   assert.match(icons.headers.get('content-type') ?? '', /^text\/javascript\b/);
   assert.match(await (await fetch(`${origin}/style.css`)).text(), /\.rep-journal-modern \{[\s\S]*var\(--background-primary/);
-  const journal = await (await fetch(`${origin}/api/journal`)).json() as { today: string; unit: string; exercises: Array<{ id: string }>; workouts: unknown[] };
+  const journal = await (await fetch(`${origin}/api/journal`)).json() as {
+    today: string; unit: string; exercises: Array<{ id: string }>; workouts: unknown[]; vaultKey: string;
+  };
   assert.equal(journal.unit, 'kg');
   assert.equal(journal.exercises.length, 2);
   assert.equal(journal.workouts.length, 1);
@@ -68,6 +137,7 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.deepEqual(parsed.plan.sections[0].exercises.map((entry) => entry.exerciseId), [exerciseId, rowId]);
   const escape = await fetch(`${origin}/api/plan?path=${encodeURIComponent('../outside.md')}`);
   assert.equal(escape.status, 400);
+  await writeFile(join(root, journalSettingsFile), JSON.stringify({ journalFolder: 'Different folder' }));
 
   const payload = { date: journal.today, workoutId: null, exerciseId, setId: makeId(), values: { weight: 42, reps: 9 } };
   const post = (body: unknown, source = origin) => fetch(`${origin}/api/sets`, {
@@ -79,14 +149,14 @@ void test('standalone loads existing files and writes only the selected or new w
   const initial = await post(payload);
   assert.equal(initial.status, 200);
   const saved = await initial.json() as { path: string; workout: { id: string } };
-  assert.equal(saved.path, `Rep Journal/Workouts/${journal.today}.json`);
+  assert.equal(saved.path, `${journalFolder}/Workouts/${journal.today.slice(0, 4)}/${journal.today}.json`);
   assert.equal((await post(payload)).status, 200);
   const append = await post({ ...payload, workoutId: saved.workout.id, setId: makeId(), exerciseId: rowId });
   assert.equal(append.status, 200, append.ok ? undefined : await append.text());
   const another = await post({ ...payload, workoutId: null, setId: makeId() });
   assert.equal(another.status, 200);
   const second = await another.json() as { path: string };
-  assert.equal(second.path, `Rep Journal/Workouts/${journal.today}-2.json`);
+  assert.equal(second.path, `${journalFolder}/Workouts/${journal.today.slice(0, 4)}/${journal.today}-2.json`);
   const updated = parseWorkout(await readFile(join(root, saved.path), 'utf8'));
   assert.deepEqual(updated.sets.map(({ exerciseId: id }) => id), [exerciseId, rowId]);
   assert.deepEqual(updated.sets[0].load, { mode: 'weight', value: 42, unit: 'kg' });
@@ -115,7 +185,7 @@ void test('standalone loads existing files and writes only the selected or new w
   };
   assert.equal((await edit('workout-edits', notesOnly)).status, 200);
   assert.equal((await edit('workout-edits', notesOnly)).status, 200);
-  const notePath = join(root, 'Rep Journal', 'Workouts', `${journal.today}-3.json`);
+  const notePath = join(root, journalFolder, 'Workouts', journal.today.slice(0, 4), `${journal.today}-3.json`);
   const newWorkout = parseWorkout(await readFile(notePath, 'utf8'));
   assert.equal(newWorkout.id, notesOnly.newWorkoutId);
   assert.equal(newWorkout.notes, 'Note only');
@@ -131,7 +201,7 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.equal(archived.id, exerciseId);
   assert.equal(archived.archived, true);
   assert.deepEqual(archived.aliases, ['Bench', 'Bench Press']);
-  const exerciseText = await readFile(join(root, 'Rep Journal', 'Exercises', 'Bench Press.md'), 'utf8');
+  const exerciseText = await readFile(join(root, journalFolder, 'Exercises', 'Bench Press.md'), 'utf8');
   assert.match(exerciseText, /^custom: Keep me$/m);
   assert.ok(exerciseText.endsWith('\n\n## Form cue\nKeep the note body.\n'));
   assert.equal((await edit('exercises', exerciseEdit)).status, 400);
@@ -139,7 +209,7 @@ void test('standalone loads existing files and writes only the selected or new w
   const press = { exerciseId: makeId(), original: null, values: { ...values, name: 'Overhead Press', aliases: [], archived: false } };
   assert.equal((await edit('exercises', press)).status, 200);
   assert.equal((await edit('exercises', press)).status, 200);
-  assert.match(await readFile(join(root, 'Rep Journal', 'Exercises', 'Overhead Press.md'), 'utf8'), /## Exercise guides/);
+  assert.match(await readFile(join(root, journalFolder, 'Exercises', 'Overhead Press.md'), 'utf8'), /## Exercise guides/);
 
   const state = await (await fetch(`${origin}/api/journal`)).json() as { starters: Array<{ id: string; name: string }> };
   const starter = state.starters.find(({ name }) => name === 'Hip Flexor Stretch');
@@ -154,8 +224,14 @@ void test('standalone loads existing files and writes only the selected or new w
   const dated = await post({ ...datedSet, selectedDate: true });
   assert.equal(dated.status, 200);
   const datedPath = (await dated.json() as { path: string }).path;
-  assert.equal(datedPath, `Rep Journal/Workouts/${history.date}-2.json`);
+  assert.equal(datedPath, `${journalFolder}/Workouts/2024/${history.date}-2.json`);
   assert.equal(parseWorkout(await readFile(join(root, datedPath), 'utf8')).sets[0].durationSeconds, 75);
+  assert.ok(!(await readdir(root)).includes('Different folder'));
+  const restarted = await startStandalone(root, 0, 'kg');
+  context.after(() => new Promise<void>((complete, reject) => restarted.server.close((error) => { if (error) reject(error); else complete(); })));
+  const restartedJournal = await (await fetch(`${restarted.origin}/api/journal`)).json() as { vaultKey: string; workouts: unknown[] };
+  assert.notEqual(restartedJournal.vaultKey, journal.vaultKey);
+  assert.deepEqual(restartedJournal.workouts, []);
 });
 
 void test('standalone progress and export use the active journal and preserve the CSV when refresh fails', async (context) => {
@@ -170,6 +246,7 @@ void test('standalone progress and export use the active journal and preserve th
   const exerciseId = makeId();
   const missingId = makeId();
   const folder = join(root, 'Set Ledger');
+  await writeFile(join(root, journalSettingsFile), JSON.stringify({ journalFolder: 'Set Ledger' }));
   const folderPath = join(folder, 'Workouts');
   await mkdir(folderPath, { recursive: true });
   await mkdir(join(folder, 'Exercises'));

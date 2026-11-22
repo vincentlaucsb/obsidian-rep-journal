@@ -1,16 +1,22 @@
+import { mount, unmount } from 'svelte';
+import PlanView from './PlanView.svelte';
+import type { RenderPlanMarkdown } from './plan-view.ts';
 import type { LineChartOptions } from 'svgplot-wasm';
 import type { DistanceUnit, ExerciseChoice, ExerciseNote, ExerciseTag, LedgerData, LoadMode, Measurement, TagGroup,
   WeightUnit, Workout, WorkoutFile, WorkoutSet } from '../src/model.ts';
 import type { ContextOptions, ExportFormat } from '../src/exports.ts';
 import type { exerciseProgress, ExerciseEditInput, LogSetInput, PlanNote, WorkoutEditInput } from '../src/journal-workflow.ts';
-import type { parseWorkoutPlan, PlanExercise, PlanSection, WorkoutPlan } from '../src/workout-plan.ts';
+import type { DatedPlanNote } from '../src/repo/plan-repository.ts';
+import type { parseWorkoutPlan } from '../src/workout-plan.ts';
 import { WorkoutNoteDrafts } from './drafts.js';
 import { lucideIcon } from './icons.js';
+import { plannedExercise, PlanUses, type PlanUse } from './plan-uses.ts';
 import { mountStrengthChart } from './strength-chart.js';
 import { convertDistance, convertWeight } from './units.js';
 
 export interface JournalAdapter {
-  loadJournal(): Promise<LedgerData & { starters: ExerciseChoice[]; today: string; unit: WeightUnit; vaultKey: string }>;
+  renderPlanMarkdown?: RenderPlanMarkdown;
+  loadJournal(): Promise<LedgerData & { starters: ExerciseChoice[]; today: string; unit: WeightUnit; vaultKey: string; datedPlans: DatedPlanNote[] }>;
   enablePopover(): Promise<void>;
   listPlans(): Promise<PlanNote[]>;
   readPlan(path: string): Promise<ReturnType<typeof parseWorkoutPlan>>;
@@ -35,6 +41,7 @@ export interface MountedJournal {
   openExport(): Promise<void>;
   openPlan(file: PlanNote, start?: boolean): Promise<void>;
   reload(force?: boolean): Promise<void>;
+  refreshVaultNotes(): Promise<void>;
   setWeightUnit(unit: WeightUnit): void;
   dispose(): void;
 }
@@ -49,8 +56,6 @@ type SetInputs = LogSetInput['values'];
 type ExistingWorkoutChange = Extract<WorkoutEditInput, { workoutId: string }>['change'];
 type Attributes = Record<string, string | number | undefined>;
 type Action = () => void | Promise<void>;
-type PlanPosition = PlanNote & { section: number; exercise: number };
-type ActivePlan = PlanPosition & { plan: WorkoutPlan };
 type ReviewedPlan = PlanNote & { result?: ReturnType<typeof parseWorkoutPlan>; error?: string };
 type Picker = { search: string; tags: Set<string> };
 type Suggestion = { rank: number; label: string; status: 'next' | 'planned' };
@@ -58,7 +63,7 @@ type Suggestion = { rank: number; label: string; status: 'next' | 'planned' };
 interface Entry {
   exerciseId?: string;
   setId: string;
-  planned: boolean;
+  planUse?: PlanUse;
   unit: WeightUnit;
   date: string;
   selectedDate: boolean;
@@ -81,7 +86,6 @@ interface JournalState {
   selected: string | null;
   newSession: boolean;
   screen: Screen;
-  active: ActivePlan | null;
   review: ReviewedPlan | null;
   saving: boolean;
   calendarMonth: Date;
@@ -111,15 +115,6 @@ function findLast<T>(values: readonly T[], matches: (value: T) => boolean): T | 
   }
 }
 
-function isSavedPlan(value: unknown): value is PlanPosition & { signature: string } {
-  return !!value && typeof value === 'object' &&
-    'path' in value && typeof value.path === 'string' &&
-    'title' in value && typeof value.title === 'string' &&
-    'section' in value && typeof value.section === 'number' && Number.isInteger(value.section) &&
-    'exercise' in value && typeof value.exercise === 'number' && Number.isInteger(value.exercise) &&
-    'signature' in value && typeof value.signature === 'string';
-}
-
 function inputFor(form: HTMLFormElement, measurement: Measurement): HTMLInputElement {
   const control = form.querySelector<HTMLInputElement>(`input[name="${measurement}"]`);
   if (!control) throw new Error(`Missing measurement field: ${measurement}`);
@@ -132,11 +127,18 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   const standalone = root.classList.contains('rep-journal-standalone');
   let mounted = true;
   let refreshVersion = 0;
+  let vaultNotesRefreshPending = false;
+  let vaultNotesRefreshRunning = false;
+  let updateExerciseList: (() => void) | undefined;
   let progressVersion = 0;
   let disposeStrengthChart: (() => void) | undefined;
+  let disposePlanView: (() => void) | undefined;
+  let disposeEntryNotes: (() => void) | undefined;
+  let restoredPlanUses: Promise<PlanUses> | undefined;
+  let planUses: PlanUses;
   root.classList.add('rep-journal-modern');
   const state: JournalState = {
-    journal: null, date: null, selected: null, newSession: false, screen: 'log', active: null, review: null, saving: false,
+    journal: null, date: null, selected: null, newSession: false, screen: 'log', review: null, saving: false,
     calendarMonth: new Date(), calendarDay: null,
   };
   const journalData = () => required(state.journal);
@@ -231,8 +233,13 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     }).catch(() => { overflowToggle.title = 'Menu unavailable'; });
   }
 
-  function notes(value?: string) {
-    return value ? el('p', { class: 'notes' }, value) : undefined;
+  function entryNotes(use: PlanUse) {
+    const markdown = plannedExercise(use)?.notes;
+    if (!markdown) return;
+    if (!adapter.renderPlanMarkdown) return el('p', { class: 'notes' }, markdown);
+    const host = el('div', { class: 'notes' });
+    disposeEntryNotes = adapter.renderPlanMarkdown(host, markdown, use.path);
+    return host;
   }
 
   function workouts(): Workout[] {
@@ -241,6 +248,16 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
 
   function workoutDate() {
     return state.date ?? journalData().today;
+  }
+
+  function activePlans(day = workoutDate()) {
+    return planUses.active(day, journalData().datedPlans);
+  }
+
+  function refreshPlansForDate(date: string) {
+    void planUses.refreshManual(date, journalData().datedPlans, (path) => adapter.readPlan(path)).then((changed) => {
+      if (changed && mounted && date === workoutDate() && (state.screen === 'log' || state.screen === 'plans' || state.screen === 'plan')) render();
+    });
   }
 
   function selectedWorkout() {
@@ -254,6 +271,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     if (state.screen !== screen) overflow.hidePopover?.();
     state.screen = screen;
     render();
+    void flushVaultNotesRefresh();
   }
 
   function goToday() {
@@ -261,24 +279,37 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   function goDate(date: string) {
+    const changed = date !== workoutDate();
     state.date = date === journalData().today ? null : date;
     state.selected = null;
     state.newSession = false;
     view('log');
+    if (changed) refreshPlansForDate(date);
   }
 
   function goSession(workout?: Workout) {
     if (workout) {
+      const changed = workout.date !== workoutDate();
       state.date = workout.date === journalData().today ? null : workout.date;
       state.selected = workout.id;
       state.newSession = false;
       view('log');
+      if (changed) refreshPlansForDate(workout.date);
     } else goToday();
   }
 
-  function render() {
+  function disposeScreen() {
+    disposeEntryNotes?.();
+    disposeEntryNotes = undefined;
     disposeStrengthChart?.();
     disposeStrengthChart = undefined;
+    disposePlanView?.();
+    disposePlanView = undefined;
+    updateExerciseList = undefined;
+  }
+
+  function render() {
+    disposeScreen();
     if (!mounted) return;
     app.replaceChildren();
     app.setAttribute('aria-busy', 'false');
@@ -300,7 +331,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     if (state.screen === 'log') app.append(renderLog());
     if (state.screen === 'calendar') app.append(renderCalendar());
     if (state.screen === 'plans') app.append(renderPlans());
-    if (state.screen === 'plan') app.append(renderPlan());
+    if (state.screen === 'plan') renderPlan();
     if (state.screen === 'entry') app.append(renderEntry());
     if (state.screen === 'edit-set') app.append(renderSetEditor());
     if (state.screen === 'exercises') app.append(renderExercises());
@@ -352,11 +383,11 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       });
       actions.append(select);
     }
-    actions.append(button('+ Log set', () => openEntry(false), { className: 'primary', disabled: Boolean(issues.length) }));
-    if (!sessions.some((workout) => workout.sets.length)) {
-      actions.append(button('Follow a plan', () => state.active ? showActivePlan() : openPlans()));
-    }
+    actions.append(button('+ Log set', () => openEntry(), { className: 'primary', disabled: Boolean(issues.length) }));
+    actions.append(button('Follow a plan', openPlans));
     panel.append(actions);
+    const plans = activePlans(day);
+    if (plans.length > 1) panel.append(el('div', { class: 'plan-banners' }, ...plans.map(renderBanner)));
     if (issues.length) {
       const details = el('details', { class: 'warning' }, el('summary', {}, `${issues.length} vault ${issues.length === 1 ? 'issue' : 'issues'}`));
       details.append(el('ul', {}, ...issues.map((issue) => el('li', {}, issue))));
@@ -383,7 +414,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
         button(lucideIcon(document, 'chart-line'), () => openProgress(id, session), {
           className: 'exercise-card-action', label: progressLabel, title: progressLabel,
         }),
-        button(lucideIcon(document, 'plus'), () => openEntry(false, id), {
+        button(lucideIcon(document, 'plus'), () => openEntry(id), {
           className: 'exercise-card-action', label: logLabel, title: logUnavailable ?? logLabel, disabled: Boolean(logUnavailable),
         }));
       const rows = sets.map((set, index) => el('li', { class: 'set-row' },
@@ -398,7 +429,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     }
     panel.append(log);
     panel.append(renderWorkoutNotes(session, day));
-    if (isToday && state.active) panel.append(renderBanner());
+    if (plans.length === 1) panel.append(renderBanner(plans[0]));
     return panel;
   }
 
@@ -447,6 +478,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       state.saving = false;
       submit.replaceChildren(...label);
       for (const control of controls) control.disabled = false;
+      void flushVaultNotesRefresh();
     }
   }
 
@@ -467,6 +499,9 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     });
     restore.hidden = !draft || original === (session?.notes ?? '');
     const form = el('form', { class: 'entry-form' }, el('label', {}, 'Notes', field), error, el('div', { class: 'plan-controls' }, submit, restore));
+    form.addEventListener('focusout', () => {
+      hostWindow.queueMicrotask(() => { void flushVaultNotesRefresh(); });
+    });
     const update = () => {
       submit.disabled = field.value === originalValue || (!session && !field.value.trim());
     };
@@ -579,23 +614,29 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const list = el('div', { class: 'plan-list', 'aria-live': 'polite' });
     search.value = state.exerciseSearch ?? '';
     function renderList() {
+      const focused = list.querySelector<HTMLButtonElement>('button:focus')?.dataset.exerciseId;
+      let nextFocus: HTMLButtonElement | undefined;
       const term = search.value.trim().toLocaleLowerCase();
       const visible = journalData().exercises.filter(({ name, aliases }) => [name, ...aliases].some((value) => value.toLocaleLowerCase().includes(term)));
       visible.sort((a, b) => Number(a.archived) - Number(b.archived) || a.name.localeCompare(b.name));
       list.replaceChildren();
       for (const exercise of visible) {
         const choice = button(exercise.name, () => openExerciseEditor(exercise), { className: 'plan-option' });
+        choice.dataset.exerciseId = exercise.id;
+        if (exercise.id === focused) nextFocus = choice;
         const subtitle = [exercise.archived ? 'Archived' : '', ...exercise.aliases].filter(Boolean).join(' · ');
         if (subtitle) choice.append(el('span', { class: 'secondary' }, subtitle));
         list.append(choice);
       }
       if (!visible.length) list.append(el('p', { class: 'empty' }, 'No matching exercises.'));
+      if (focused) (nextFocus ?? search).focus({ preventScroll: true });
     }
     search.addEventListener('input', () => {
       state.exerciseSearch = search.value;
       renderList();
     });
     renderList();
+    updateExerciseList = renderList;
     return el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }),
       el('div', { class: 'manage-heading' }, el('h1', {}, 'Exercises'),
         button('New exercise', () => openExerciseEditor(), { className: 'primary' })),
@@ -962,15 +1003,19 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     return `Session ${index + 1}`;
   }
 
-  function renderBanner() {
-    const { plan, section, title } = required(state.active);
-    const entry = activeExercise();
-    const current = plan.sections[section];
-    return el('aside', { class: 'plan-banner', 'aria-label': 'Active plan' },
-      el('div', {}, el('strong', {}, plan.title ?? title),
+  function renderBanner(use: PlanUse) {
+    const title = use.plan.title ?? use.title;
+    const entry = plannedExercise(use);
+    const current = use.plan.sections[use.section];
+    return el('aside', { class: 'plan-banner', 'aria-label': title, 'data-plan-path': use.path },
+      el('div', {}, el('strong', {}, title),
         el('p', { class: 'secondary', 'aria-live': 'polite' }, entry ? `Up next · ${entry.name}` : `Active section · ${current.name}`),
-        button('View plan', showActivePlan, { className: 'text-button' })),
-      entry ? startExerciseButton(entry) : sectionDoneButton(current));
+        button('View plan', () => showActivePlan(use), { className: 'text-button' })),
+      entry ? button('Start', () => openPlannedEntry(use), {
+        className: 'primary', label: `Start ${entry.name}`, disabled: Boolean(journalData().issues.length),
+      }) : button('Done', () => finishPlanSection(use), {
+        className: 'plan-done', label: `Done with ${current.name}`,
+      }));
   }
 
   function openCalendar() {
@@ -1062,147 +1107,91 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       pick.append(el('span', { class: 'secondary' }, file.path));
       list.append(pick);
     }
-    return el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }), el('h1', {}, 'Workout plans'),
-      state.active ? button('View active plan', showActivePlan, { className: 'primary' }) : undefined, list);
+    const active = activePlans();
+    return el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }),
+      el('h1', {}, 'Workout plans'), el('p', { class: 'secondary' }, fullDate.format(asDate(workoutDate()))),
+      ...active.map((use) => button(active.length === 1 ? 'View active plan' : `View ${use.plan.title ?? use.title}`,
+        () => showActivePlan(use), { className: 'primary' })), list);
   }
 
   async function openPlan(file: PlanNote, start = false) {
     if (!mounted || state.saving) return;
-    if (state.active?.path === file.path && !start) { showActivePlan(); return; }
+    const active = activePlans().find(({ path }) => path === file.path);
+    if (active && !start) { showActivePlan(active); return; }
     const current: ReviewedPlan = { ...file };
     state.review = current;
     view('plan');
     try { current.result = await adapter.readPlan(file.path); }
     catch (error) { current.error = message(error); }
     if (!mounted || state.screen !== 'plan' || state.review !== current) return;
-    if (start && current.result?.plan) startPlan();
+    if (start && current.result?.plan) startPlan(current);
     else render();
   }
 
-  function showActivePlan() {
-    const { path, title, plan } = required(state.active);
+  function showActivePlan({ path, title, plan }: PlanUse) {
     state.review = { path, title, result: { plan } };
     view('plan');
   }
 
-  function activeExercise() {
-    return state.active?.plan.sections[state.active.section]?.exercises[state.active.exercise];
-  }
-
-  function startExerciseButton(exercise: PlanExercise) {
-    return button('Start', () => openEntry(true), {
-      className: 'primary', label: `Start ${exercise.name}`, disabled: Boolean(journalData().issues.length),
-    });
-  }
-
-  function storageKey() { return `rep-journal:active-plan:${journalData().vaultKey}`; }
-
-  function rememberPlan() {
-    try {
-      if (!state.active) { hostWindow.localStorage.removeItem(storageKey()); return; }
-      const { plan, ...position } = state.active;
-      hostWindow.localStorage.setItem(storageKey(), JSON.stringify({ ...position, signature: JSON.stringify(plan) }));
-    } catch { /* This browser may restrict local storage. */ }
-  }
-
-  async function restorePlan() {
-    try {
-      const saved: unknown = JSON.parse(hostWindow.localStorage.getItem(storageKey()) ?? 'null');
-      if (!isSavedPlan(saved)) return;
-      const { plan } = await adapter.readPlan(saved.path);
-      const section = plan?.sections[saved.section];
-      if (plan && section && JSON.stringify(plan) === saved.signature && saved.exercise >= 0 &&
-        saved.exercise < Math.max(1, section.exercises.length)) {
-        state.active = { path: saved.path, title: saved.title, section: saved.section, exercise: saved.exercise, plan };
-      } else rememberPlan();
-    } catch { rememberPlan(); }
-  }
-
-  function startPlan() {
-    const { path, title, result } = required(state.review);
+  function startPlan({ path, title, result }: ReviewedPlan) {
     if (!result?.plan) return;
-    state.active = { path, title, plan: result.plan, section: 0, exercise: 0 };
-    rememberPlan();
-    goToday();
+    const date = workoutDate();
+    const dated = journalData().datedPlans.some((note) => note.date === date && note.path === path);
+    planUses.start({ date, path, title, plan: result.plan }, dated);
+    view('log');
   }
 
-  function movePlan(section: number, exercise = 0) {
-    const active = required(state.active);
-    active.section = section;
-    active.exercise = exercise;
-    rememberPlan();
+  function movePlan(use: PlanUse, section: number, exercise = 0) {
+    planUses.move(use, section, exercise);
     render();
   }
 
-  function stopPlan() {
-    state.active = null;
-    rememberPlan();
-    goToday();
+  function stopPlan(use: PlanUse) {
+    planUses.stop(use);
+    view('log');
   }
 
-  function sectionDoneButton(section: PlanSection) {
-    return button('Done', () => {
-      const active = required(state.active);
-      const next = active.section + 1;
-      if (next === active.plan.sections.length) {
-        stopPlan();
-        app.querySelector<HTMLButtonElement>('.log-actions .primary')?.focus();
-        return;
-      }
-      movePlan(next);
-      app.querySelector<HTMLElement>('.current-section h2, .plan-banner > button')?.focus();
-    }, { className: 'plan-done', label: `Done with ${section.name}` });
+  function finishPlanSection(use: PlanUse) {
+    const next = use.section + 1;
+    if (next === use.plan.sections.length) {
+      stopPlan(use);
+      app.querySelector<HTMLButtonElement>('.log-actions .primary')?.focus();
+      return;
+    }
+    movePlan(use, next);
+    if (state.screen === 'plan') app.querySelector<HTMLElement>('.current-section h2')?.focus();
+    else [...app.querySelectorAll<HTMLElement>('.plan-banner')]
+      .find((banner) => banner.dataset.planPath === use.path)?.querySelector<HTMLButtonElement>(':scope > button')?.focus();
   }
 
   function renderPlan() {
     const { result, title, path, error } = required(state.review);
-    const active = state.active?.path === path ? state.active : null;
-    const plan = result?.plan;
-    const page = el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }),
-      el('h1', {}, plan?.title ?? title));
-    if (error) page.append(el('p', { role: 'alert', class: 'warning' }, error));
-    else if (!result) page.append(el('p', { role: 'status' }, 'Loading plan…'));
-    else if (result.issues) page.append(el('ul', { class: 'warning' }, ...result.issues.map(({ line, message }) => el('li', {}, `Line ${line}. ${message}`))));
-    if (!plan) return page;
-    const description = notes(plan.notes);
-    if (description) page.append(description);
-    if (active) {
-      const position = active.section;
-      page.append(el('div', { class: 'plan-controls' },
-        button('Previous section', () => movePlan(position - 1), { disabled: position === 0 }),
-        button('Next section', () => movePlan(position + 1), { disabled: position === plan.sections.length - 1 })));
-    }
-    for (const [index, section] of plan.sections.entries()) {
-      const current = index === active?.section;
-      const box = el('section', {
-        class: current ? 'plan-section current-section' : 'plan-section', 'aria-current': current ? 'step' : undefined,
-      }, current ? el('p', { class: 'active-section-label' }, 'Active section') : undefined,
-        el('div', { class: 'section-heading' }, el('h2', { tabindex: current ? -1 : undefined }, section.name),
-          section.superset ? el('span', { class: 'secondary' }, 'Superset') : undefined), notes(section.notes));
-      for (const [exerciseIndex, exercise] of section.exercises.entries()) {
-        const selected = current && exerciseIndex === active?.exercise;
-        const choice = current ? button(exercise.name, () => movePlan(index, exerciseIndex), { className: 'exercise-choice' }) : el('h3', {}, exercise.name);
-        if (current) {
-          choice.setAttribute('aria-pressed', String(selected));
-          choice.setAttribute('data-plan-status', selected ? 'next' : 'planned');
-        }
-        box.append(el('div', { class: 'plan-exercise' },
-          el('div', { class: 'plan-exercise-heading' }, choice, selected ? startExerciseButton(exercise) : undefined),
-          notes(exercise.notes)));
-      }
-      if (current) box.append(sectionDoneButton(section));
-      page.append(box);
-    }
-    page.append(el('div', { class: 'plan-controls' },
-      active ? button('Stop plan', stopPlan)
-        : button('Start plan', startPlan, { className: 'primary' })));
-    return page;
+    const active = activePlans().find((use) => use.path === path);
+    const component = mount(PlanView, {
+      target: app,
+      props: {
+        result: active ? { plan: active.plan } : result,
+        title, sourcePath: path, renderMarkdown: adapter.renderPlanMarkdown, error, active: active ?? null,
+        dateLabel: fullDate.format(asDate(workoutDate())),
+        cannotLog: Boolean(journalData().issues.length),
+        onBack: () => { if (!state.saving) view('log'); },
+        onStartPlan: () => { if (!state.saving) void openPlan({ path, title }, true); },
+        onStopPlan: () => { if (active && !state.saving) stopPlan(active); },
+        onMove: (section, exercise) => { if (active && !state.saving) movePlan(active, section, exercise); },
+        onStartExercise: () => { if (active && !state.saving) openPlannedEntry(active); },
+        onDone: () => { if (active && !state.saving) finishPlanSection(active); },
+      },
+    });
+    disposePlanView = () => { void unmount(component); };
   }
 
-  function openEntry(planned: boolean, exerciseId = planned ? activeExercise()?.exerciseId : undefined) {
-    if (planned && !exerciseId) { showActivePlan(); return; }
-    if (planned && state.date) goToday();
-    state.entry = { exerciseId, setId: adapter.makeSetId(), planned, unit: journalData().unit, date: workoutDate(),
+  function openPlannedEntry(use: PlanUse) {
+    const exercise = plannedExercise(use);
+    if (exercise) openEntry(exercise.exerciseId, use);
+  }
+
+  function openEntry(exerciseId?: string, planUse?: PlanUse) {
+    state.entry = { exerciseId, setId: adapter.makeSetId(), planUse, unit: journalData().unit, date: workoutDate(),
       selectedDate: Boolean(state.date), workoutId: selectedWorkout()?.id ?? null, picker: { search: '', tags: new Set() } };
     view('entry');
     if (exerciseId) {
@@ -1225,24 +1214,31 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const page = el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }),
       el('h1', {}, exercise?.name ?? 'Log a set'));
     if (entry.selectedDate) page.append(el('p', { class: 'secondary' }, fullDate.format(asDate(entry.date))));
-    const instructions = entry.planned && exercise ? notes(activeExercise()?.notes) : undefined;
+    const instructions = entry.planUse && exercise ? entryNotes(entry.planUse) : undefined;
     if (instructions) page.append(instructions);
     const form = el('form', { class: 'entry-form' });
     const error = el('p', { role: 'alert', class: 'warning', hidden: '' });
     if (!exercise) {
-      if (entry.planned) {
+      if (entry.planUse) {
         page.append(el('p', { class: 'warning' }, 'The planned exercise note is unavailable.'));
         return page;
       }
       const options: ExerciseChoice[] = [...exercises, ...journalData().starters];
       const suggestions = new Map<string, Suggestion>();
-      const next = activeExercise() ?? state.active?.plan.sections.slice(state.active.section + 1)
-        .find(({ exercises }) => exercises.length)?.exercises[0];
-      if (next) suggestions.set(next.exerciseId, { rank: 0, label: 'Up next', status: 'next' });
-      for (const section of state.active?.plan.sections ?? []) {
-        for (const { exerciseId } of section.exercises) {
-          if (!suggestions.has(exerciseId)) {
-            suggestions.set(exerciseId, { rank: suggestions.size, label: 'In active plan', status: 'planned' });
+      const plans = activePlans(entry.date);
+      for (const use of plans) {
+        const next = plannedExercise(use) ?? use.plan.sections.slice(use.section + 1)
+          .find(({ exercises }) => exercises.length)?.exercises[0];
+        if (next && !suggestions.has(next.exerciseId)) {
+          suggestions.set(next.exerciseId, { rank: suggestions.size, label: 'Up next', status: 'next' });
+        }
+      }
+      for (const { plan } of plans) {
+        for (const { exercises } of plan.sections) {
+          for (const { exerciseId } of exercises) {
+            if (!suggestions.has(exerciseId)) {
+              suggestions.set(exerciseId, { rank: suggestions.size, label: 'In active plan', status: 'planned' });
+            }
           }
         }
       }
@@ -1266,7 +1262,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       return page;
     }
     const actions = el('div', { class: 'plan-controls' });
-    if (!entry.planned) actions.append(button('Change exercise', () => selectEntryExercise(undefined)));
+    if (!entry.planUse) actions.append(button('Change exercise', () => selectEntryExercise(undefined)));
     if (adapter.openExerciseNote) actions.append(button('Open exercise note', () => adapter.openExerciseNote?.(exercise), { className: 'text-button' }));
     page.append(actions);
     const past = workouts().filter(({ date }) => date <= entry.date);
@@ -1317,24 +1313,55 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     return saveChange(submit, error, () => adapter.saveSet({ date, selectedDate, workoutId, exerciseId, setId: entry.setId, values }, entry.unit), (saved) => {
       recordWorkout(saved);
       if (workoutId === null) noteDrafts.associate(date, saved.workout.id);
-      if (entry.planned && state.active && activeExercise()?.exerciseId === entry.exerciseId) {
-        const section = state.active.plan.sections[state.active.section];
-        if (section.superset) state.active.exercise = (state.active.exercise + 1) % section.exercises.length;
-        rememberPlan();
-      }
+      const savedSet = saved.workout.sets.find(({ id }) => id === entry.setId);
+      if (entry.planUse && savedSet) planUses.log(entry.planUse, savedSet);
       goSession(saved.workout);
     });
   }
 
   const editing = () => ['entry', 'edit-set', 'edit-exercise'].includes(state.screen);
+  const preserveForm = () => state.saving || editing() || state.screen === 'export' ||
+    Boolean(app.querySelector('.session-notes form:focus-within'));
 
-  async function reload(force = false) {
+  async function flushVaultNotesRefresh(): Promise<void> {
+    if (!mounted || !vaultNotesRefreshPending || vaultNotesRefreshRunning || preserveForm()) return;
+    vaultNotesRefreshPending = false;
+    vaultNotesRefreshRunning = true;
+    try {
+      await reload(false, true);
+    } finally {
+      vaultNotesRefreshRunning = false;
+      void flushVaultNotesRefresh();
+    }
+  }
+
+  async function reload(force = false, background = false) {
     if (!mounted || state.saving || (!force && editing())) return;
     const version = ++refreshVersion;
     try {
       const journal = await adapter.loadJournal();
-      if (!mounted || version !== refreshVersion || state.saving || (!force && editing())) return;
-      const firstLoad = !state.journal;
+      if (!mounted) return;
+      if (background && (version !== refreshVersion || preserveForm())) {
+        vaultNotesRefreshPending = true;
+        return;
+      }
+      if (version !== refreshVersion || state.saving || (!force && editing())) return;
+      if (!restoredPlanUses) {
+        const uses = new PlanUses(() => hostWindow.localStorage, journal.vaultKey);
+        restoredPlanUses = uses.restore(journal.today, (path) => adapter.readPlan(path), journal.datedPlans).then(() => uses);
+      }
+      planUses = await restoredPlanUses;
+      if (!mounted || version !== refreshVersion) {
+        if (mounted && background) vaultNotesRefreshPending = true;
+        return;
+      }
+      await planUses.refreshManual(state.date ?? journal.today, journal.datedPlans, (path) => adapter.readPlan(path));
+      if (!mounted) return;
+      if (background && (version !== refreshVersion || preserveForm())) {
+        vaultNotesRefreshPending = true;
+        return;
+      }
+      if (version !== refreshVersion || state.saving || (!force && editing())) return;
       const dateChanged = state.journal && journal.today !== journalData().today;
       state.journal = journal;
       if (dateChanged && !state.date) {
@@ -1342,13 +1369,19 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
         state.newSession = false;
         if (state.screen === 'entry') state.screen = 'log';
       }
-      if (firstLoad) await restorePlan();
       if (version === refreshVersion) {
         if (state.screen === 'progress') await openProgress();
-        else render();
+        else if (background && updateExerciseList) updateExerciseList();
+        else if (!background || state.screen !== 'calendar') render();
       }
     } catch (error) {
+      if (mounted && background && (version !== refreshVersion || preserveForm())) {
+        vaultNotesRefreshPending = true;
+        return;
+      }
       if (!mounted || version !== refreshVersion) return;
+      if (background && state.screen === 'calendar') return;
+      disposeScreen();
       app.setAttribute('aria-busy', 'false');
       app.replaceChildren(el('p', { class: 'warning', role: 'alert' }, message(error)));
     }
@@ -1374,6 +1407,11 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       if (state.journal) await openPlan(file, start);
     },
     reload,
+    async refreshVaultNotes() {
+      await ready;
+      vaultNotesRefreshPending = true;
+      await flushVaultNotesRefresh();
+    },
     setWeightUnit(unit) {
       if (!mounted || !state.journal) return;
       journalData().unit = unit;
@@ -1382,7 +1420,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     },
     dispose() {
       mounted = false;
-      disposeStrengthChart?.();
+      disposeScreen();
       menuResize.disconnect();
       root.replaceChildren();
       root.classList.remove('rep-journal-modern');
