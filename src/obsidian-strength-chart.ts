@@ -1,14 +1,14 @@
+import { initializeSvgplot, lineChart } from 'svgplot-wasm';
+import wasmBinary from 'svgplot-wasm/line-engine.wasm';
 import type { JournalAdapter } from '../standalone/app.js';
 
-let chart: Promise<typeof import('svgplot-wasm').lineChart> | undefined;
+let ready: Promise<void> | undefined;
 
 export const drawObsidianStrengthChart: NonNullable<JournalAdapter['drawStrengthChart']> = async (host, options) => {
-  chart ??= Promise.all([import('svgplot-wasm'), import('svgplot-wasm/line-engine.wasm')]).then(async ([svgplot, bytes]) => {
-    await svgplot.initializeSvgplot({ wasmBinary: bytes.default });
-    return svgplot.lineChart;
-  }).catch((error: unknown) => {
-    chart = undefined;
+  ready ??= initializeSvgplot({ wasmBinary }).catch((error: unknown) => {
+    ready = undefined;
     throw error;
   });
-  return (await chart)(host, options);
+  await ready;
+  return lineChart(host, options);
 };

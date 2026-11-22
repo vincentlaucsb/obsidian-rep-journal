@@ -26,5 +26,10 @@ if (process.argv.includes('--watch')) {
   const watcher = await context({ ...options, sourcemap: 'inline' });
   await watcher.watch();
 } else {
-  await build(options);
+  const { metafile } = await build({ ...options, metafile: true });
+  const externalImports = Object.values(metafile.outputs).flatMap(output => output.imports)
+    .filter(entry => entry.external && entry.path !== 'obsidian');
+  if (externalImports.length) {
+    throw new Error(`Obsidian bundle contains unsupported external imports: ${externalImports.map(entry => entry.path).join(', ')}`);
+  }
 }

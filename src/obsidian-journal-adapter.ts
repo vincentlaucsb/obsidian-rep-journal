@@ -1,3 +1,4 @@
+import { apply, isSupported } from '@oddbird/popover-polyfill/fn';
 import type { Vault } from 'obsidian';
 import type { JournalAdapter } from '../standalone/app.js';
 import { progressExercises } from './analytics.ts';
@@ -39,7 +40,6 @@ export function createObsidianJournalAdapter(
       return { ...data, starters: workoutStarters(data), today: localDate(), unit: options.weightUnit(), vaultKey: options.vaultKey };
     },
     async enablePopover() {
-      const { apply, isSupported } = await import('@oddbird/popover-polyfill/fn');
       if (!isSupported()) apply();
     },
     async listPlans() {

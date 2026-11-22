@@ -75,7 +75,8 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
   overflow-wrap: anywhere;
 }
 .rep-journal-modern .wordmark:enabled:hover { border-color: transparent; }
-.rep-journal-modern .masthead nav { display: flex; flex: none; gap: .3rem; }
+.rep-journal-modern .masthead nav { flex: none; gap: .3rem; }
+.rep-journal-modern .masthead nav:not([hidden]) { display: flex; }
 .rep-journal-modern .masthead .nav-icon { display: grid; place-items: center; width: 2.75rem; padding: 0; }
 .rep-journal-modern .nav-icon svg { width: var(--icon-size-m, 1.125rem); height: var(--icon-size-m, 1.125rem); }
 .rep-journal-modern .masthead nav button[aria-current='page'],
@@ -216,7 +217,7 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern button.exercise-choice { height: auto; min-width: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .rep-journal-modern .plan-exercise-heading h3 { min-width: 0; overflow-wrap: anywhere; }
 .rep-journal-modern .plan-exercise-heading .primary { flex: none; }
-.rep-journal-modern .entry-form, .rep-journal-modern .entry-form label { display: grid; gap: .5rem; }
+.rep-journal-modern .entry-form, .rep-journal-modern .entry-form label:not([hidden]) { display: grid; gap: .5rem; }
 .rep-journal-modern .entry-form { gap: .85rem; }
 .rep-journal-modern .entry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
 .rep-journal-modern .entry-form input, .rep-journal-modern .entry-form select, .rep-journal-modern .entry-form textarea { width: 100%; min-width: 0; }
@@ -240,7 +241,7 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .strength-chart-plot .line-series { fill: none; stroke: var(--accent); }
 .rep-journal-modern .strength-chart-plot .line-marker { fill: var(--accent); cursor: pointer; }
 .rep-journal-modern .strength-chart-plot .line-marker.is-selected { stroke: var(--accent); stroke-width: 2; }
-.rep-journal-modern .strength-chart-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.rep-journal-modern .strength-chart-controls:not([hidden]) { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
 .rep-journal-modern .strength-chart-detail { color: var(--muted); font-variant-numeric: tabular-nums; }
 .rep-journal-modern .progress-history, .rep-journal-modern .context-preview { display: grid; gap: .6rem; min-width: 0; }
 .rep-journal-modern .progress-session { font-variant-numeric: tabular-nums; }
@@ -251,7 +252,7 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .last-session ol { margin: 0; padding-inline-start: 1.25rem; }
 .rep-journal-modern .last-session button { justify-self: start; }
 .rep-journal-modern .context-preview textarea { font-family: var(--font-monospace, ui-monospace, monospace); font-size: .86rem; }
-.rep-journal-modern [hidden] { display: none !important; }
+.rep-journal-modern [hidden] { display: none; }
 
 @container (max-width: 360px) {
   .rep-journal-modern .masthead-content, .rep-journal-modern .rj-workspace { padding-inline: .68rem; }

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { parseWorkout } from '../../src/model.ts';
 import { exerciseId, exerciseName, test } from './obsidian.ts';
 
-test('logs a weighted set and restores it from the vault', async ({ obsidian: { page, vault } }) => {
+test('logs, charts, and restores a weighted set', async ({ obsidian: { page, vault } }) => {
   const ribbon = page.getByLabel('Open workout log', { exact: true });
   const journal = page.locator('.rep-journal-modern');
   await ribbon.click();
@@ -26,6 +26,11 @@ test('logs a weighted set and restores it from the vault', async ({ obsidian: { 
   expect(workout.sets[0]).toMatchObject({
     exerciseId, exerciseName, load: { mode: 'weight', value: 135, unit: 'lb' }, reps: 5,
   });
+
+  await journal.getByRole('button', { name: `View progress for ${exerciseName}`, exact: true }).click();
+  await expect(journal.locator('.strength-chart-plot svg use.line-marker')).toHaveCount(1);
+  await journal.getByRole('button', { name: 'Back to workout', exact: true }).click();
+  await expect(editSet).toBeVisible();
 
   await page.reload();
   await ribbon.click();
