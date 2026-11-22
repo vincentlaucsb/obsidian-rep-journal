@@ -48,12 +48,16 @@ jobs:
           if ((Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash -ne $sha256) {
             throw 'Obsidian installer checksum mismatch.'
           }
-          $install = Start-Process -FilePath $installer -ArgumentList '/S' -WindowStyle Hidden -PassThru -Wait
+          $installDir = Join-Path $env:RUNNER_TEMP 'Obsidian'
+          $install = Start-Process -FilePath $installer -ArgumentList '/S', "/D=$installDir" -WindowStyle Hidden -PassThru -Wait
           if ($install.ExitCode -ne 0) { throw "Obsidian installer exited with $($install.ExitCode)." }
+          $executable = Join-Path $installDir 'Obsidian.exe'
+          if (!(Test-Path -LiteralPath $executable -PathType Leaf)) { throw "Obsidian was not installed at $executable." }
+          Add-Content -LiteralPath $env:GITHUB_ENV -Value "OBSIDIAN_EXECUTABLE=$executable" -Encoding utf8
       - run: npm run test:ui
       - name: Upload Playwright diagnostics
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: obsidian-ui-results
           path: test-results/
