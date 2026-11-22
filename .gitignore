@@ -6,3 +6,4 @@ node_modules/
 /Set Ledger/
 .env
 .env.*
+/test-results/

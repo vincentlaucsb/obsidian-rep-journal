@@ -31,6 +31,13 @@ export default defineConfig(
     },
   },
   {
+    files: ['tests/e2e/obsidian.ts'],
+    rules: {
+      // The UI fixture creates a vault with the default Obsidian configuration directory.
+      'obsidianmd/hardcoded-config-path': 'off',
+    },
+  },
+  {
     files: ['standalone/**/*.js'],
     languageOptions: { globals: { crypto: 'readonly', document: 'readonly', fetch: 'readonly', localStorage: 'readonly' } },
     rules: { 'no-dupe-keys': 'error', 'no-undef': 'error', 'no-unreachable': 'error', 'no-unused-vars': 'error' },
