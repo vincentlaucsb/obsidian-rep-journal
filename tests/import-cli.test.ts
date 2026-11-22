@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, readdir, rm, rmdir, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, rmdir, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
@@ -8,7 +8,7 @@ import { test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { parseWorkout, createWorkout, exerciseFrontmatter, type Exercise } from '../src/model.ts';
 import { starterExercises } from '../src/catalog.ts';
-import { exerciseFilename } from '../src/journal-paths.ts';
+import { exerciseFilename, journalSettingsFile } from '../src/journal-paths.ts';
 import { stringify } from 'yaml';
 
 const cli = fileURLToPath(new URL('../scripts/import-cli.ts', import.meta.url));
@@ -62,16 +62,24 @@ void test('catalog and dry-run resolve existing aliases without writing files', 
   assert.deepEqual(await readdir(folder), [name]);
 });
 
-void test('apply preserves legacy files, numbers new workouts, and skips an identical replay', async (context) => {
+void test('apply uses the configured folder, numbers flat and yearly workouts, and skips an identical replay', async (context) => {
   const vault = await scratchVault(context);
-  const root = join(vault, 'Set Ledger');
+  const journalFolder = 'Training/Routine';
+  await writeFile(join(vault, journalSettingsFile), JSON.stringify({ journalFolder }));
+  const root = join(vault, journalFolder);
   const dir = join(root, 'Workouts');
-  await mkdir(dir, { recursive: true });
+  const year = join(dir, '2026');
+  await mkdir(year, { recursive: true });
   const legacy = createWorkout(testDate);
   const legacyName = `${testDate}-${legacy.id}.json`;
   const legacyPath = join(dir, legacyName);
   const legacyText = JSON.stringify(legacy);
   await writeFile(legacyPath, legacyText);
+  const existingYearlyName = `${testDate}-4.json`;
+  await writeFile(join(year, existingYearlyName), JSON.stringify(createWorkout(testDate)));
+  const unselected = join(vault, 'Set Ledger', 'Workouts');
+  await mkdir(unselected, { recursive: true });
+  await writeFile(join(unselected, 'broken.json'), 'unselected');
   const inputPath = join(vault, 'input file.json');
   const input = JSON.stringify({
     workouts: [
@@ -83,10 +91,12 @@ void test('apply preserves legacy files, numbers new workouts, and skips an iden
   const result = run(vault, ['--input', inputPath, '--apply']);
   assert.equal(result.status, 0);
   assert.partialDeepStrictEqual(result.output, { ok: true, mode: 'apply', issues: [] });
-  assert.deepEqual((await readdir(dir)).sort(), [`${testDate}-2.json`, `${testDate}-3.json`, legacyName].sort());
+  assert.deepEqual((await readdir(dir)).sort(), ['2026', legacyName]);
+  const yearlyNames = [existingYearlyName, `${testDate}-5.json`, `${testDate}-6.json`];
+  assert.deepEqual((await readdir(year)).sort(), yearlyNames);
   assert.equal(await readFile(legacyPath, 'utf8'), legacyText);
-  const second = parseWorkout(await readFile(join(dir, `${testDate}-2.json`), 'utf8'));
-  const third = parseWorkout(await readFile(join(dir, `${testDate}-3.json`), 'utf8'));
+  const second = parseWorkout(await readFile(join(year, `${testDate}-5.json`), 'utf8'));
+  const third = parseWorkout(await readFile(join(year, `${testDate}-6.json`), 'utf8'));
   assert.deepEqual(second.sets[0].load, { mode: 'weight', value: 135, unit: 'lb' });
   assert.deepEqual(third.sets[0].distance, { value: 500, unit: 'm' });
   assert.equal(third.sets[0].durationSeconds, 115);
@@ -98,7 +108,9 @@ void test('apply preserves legacy files, numbers new workouts, and skips an iden
     ok: true, mode: 'apply', issues: [], written: { exercises: [], workouts: [] },
     plan: { exercises: [], workouts: [] },
   });
-  assert.deepEqual(await readdir(dir), [`${testDate}-2.json`, `${testDate}-3.json`, legacyName].sort());
+  assert.deepEqual((await readdir(dir)).sort(), ['2026', legacyName]);
+  assert.deepEqual((await readdir(year)).sort(), yearlyNames);
+  assert.deepEqual(await readdir(unselected), ['broken.json']);
 });
 
 void test('invalid input reports structured errors and apply leaves the vault untouched', async (context) => {
@@ -168,9 +180,29 @@ void test('apply returns completed paths after a write error and accepts the sam
   assert.equal(retry.status, 0);
   assert.partialDeepStrictEqual(retry.output, {
     ok: true, mode: 'apply', issues: [],
-    written: { exercises: [{ exerciseId: pullup.id, path: blockedPath }], workouts: [{ path: `Rep Journal/Workouts/${testDate}.json` }] },
+    written: { exercises: [{ exerciseId: pullup.id, path: blockedPath }], workouts: [{ path: `Rep Journal/Workouts/2026/${testDate}.json` }] },
   });
   assert.equal((await readdir(join(vault, 'Rep Journal', 'Exercises'))).length, 2);
+});
+
+void test('apply rejects an outside-vault symlink in the configured folder path', async (context) => {
+  const vault = await scratchVault(context);
+  const outside = await scratchVault(context);
+  await symlink(outside, join(vault, 'Linked'), 'junction');
+  await writeFile(join(vault, journalSettingsFile), JSON.stringify({ journalFolder: 'Linked/Training' }));
+  const result = run(vault, ['--input', '-', '--apply'], JSON.stringify({
+    workouts: [{ date: testDate, sets: [{ exerciseName: 'Pull-up', reps: 5 }] }],
+  }));
+  assert.equal(result.status, 1);
+  assert.partialDeepStrictEqual(result.output, {
+    ok: false, mode: 'apply',
+    issues: [
+      { path: 'Linked/Training/Exercises', code: 'VAULT_DIRECTORY_UNREADABLE' },
+      { path: 'Linked/Training/Workouts', code: 'VAULT_DIRECTORY_UNREADABLE' },
+    ],
+    written: { exercises: [], workouts: [] },
+  });
+  assert.deepEqual(await readdir(outside), []);
 });
 
 void test('a vault import lock blocks competing applies while plans remain read-only', async (context) => {

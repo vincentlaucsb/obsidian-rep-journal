@@ -4,15 +4,18 @@ import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import process from 'node:process';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { transform } from 'esbuild';
+import { build, transform } from 'esbuild';
 import { readContextOptions, workoutContext } from '../src/exports.ts';
-import { readImportVault, resolveImportVaultRoot } from './import-vault.ts';
+import { journalFolder } from '../src/journal-paths.ts';
 import { exerciseProgress, workoutStarters } from '../src/journal-workflow.ts';
 import { errorMessage, isId, isRecord, isUnit, localDate, type WeightUnit } from '../src/model.ts';
+import { DatedPlanRepository } from '../src/repo/plan-repository.ts';
+import { readImportVault, readJournalFolder, resolveImportVaultRoot } from './import-vault.ts';
+import { svelteNotices, sveltePlugin } from './svelte-esbuild.ts';
 import {
-  addStandaloneStarter, editStandaloneExercise, editStandaloneWorkout, listStandalonePlans, readStandalonePlan, refreshStandaloneCsv, saveStandaloneExport,
+  addStandaloneStarter, editStandaloneExercise, editStandaloneWorkout, listStandaloneDatedPlans, listStandalonePlans, readStandalonePlan, refreshStandaloneCsv, saveStandaloneExport,
   saveStandaloneSet,
 } from './standalone-vault.ts';
 
@@ -20,7 +23,6 @@ const host = '127.0.0.1';
 const postRoutes = new Set(['/api/sets', '/api/workout-edits', '/api/exercises', '/api/exports', '/api/context']);
 const assets = new Map([
   ['/', { file: 'standalone/index.html', type: 'text/html' }],
-  ['/app.js', { file: 'standalone/app.ts', type: 'text/javascript' }],
   ['/bootstrap.js', { file: 'standalone/bootstrap.ts', type: 'text/javascript' }],
   ['/drafts.js', { file: 'standalone/drafts.ts', type: 'text/javascript' }],
   ['/icons.js', { file: 'standalone/icons.ts', type: 'text/javascript' }],
@@ -63,12 +65,17 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 
 export async function startStandalone(vault: string, port = 4317, unit: WeightUnit = 'lb') {
   const root = await resolveImportVaultRoot(vault);
-  const vaultKey = createHash('sha256').update(root).digest('hex').slice(0, 24);
+  const folder = await readJournalFolder(root);
+  const store = { root, read: () => readImportVault(root, folder) };
+  const plans = new DatedPlanRepository(folder);
+  const hash = createHash('sha256').update(root);
+  if (folder !== journalFolder) hash.update('\0').update(folder);
+  const vaultKey = hash.digest('hex').slice(0, 24);
   let automaticCsvError: string | undefined;
   const reportAutomaticCsv = (message?: string): void => { automaticCsvError = message; };
   async function refreshAutomaticCsv(): Promise<void> {
     try {
-      await refreshStandaloneCsv(root);
+      await refreshStandaloneCsv(store);
       reportAutomaticCsv();
     } catch (error: unknown) {
       reportAutomaticCsv(errorMessage(error));
@@ -96,17 +103,17 @@ export async function startStandalone(vault: string, port = 4317, unit: WeightUn
         return;
       }
       const input = await readJson(request);
-      if (url.pathname === '/api/workout-edits') json(response, 200, await editStandaloneWorkout(root, input, localDate(), reportAutomaticCsv));
+      if (url.pathname === '/api/workout-edits') json(response, 200, await editStandaloneWorkout(store, input, localDate(), reportAutomaticCsv));
       else if (url.pathname === '/api/exercises') {
         const saved = isRecord(input) && 'starterId' in input
-          ? await addStandaloneStarter(root, input.starterId, reportAutomaticCsv)
-          : await editStandaloneExercise(root, input, unit, reportAutomaticCsv);
+          ? await addStandaloneStarter(store, input.starterId, reportAutomaticCsv)
+          : await editStandaloneExercise(store, input, unit, reportAutomaticCsv);
         json(response, 200, saved);
       }
-      else if (url.pathname === '/api/sets') json(response, 200, await saveStandaloneSet(root, input, localDate(), unit, reportAutomaticCsv));
+      else if (url.pathname === '/api/sets') json(response, 200, await saveStandaloneSet(store, input, localDate(), unit, reportAutomaticCsv));
       else if (url.pathname === '/api/context') {
         const context = readContextOptions(input);
-        json(response, 200, { text: workoutContext((await readImportVault(root)).data, context, unit) });
+        json(response, 200, { text: workoutContext((await store.read()).data, context, unit) });
       } else {
         if (!isRecord(input)) throw new Error('Choose an export format.');
         const { format } = input;
@@ -114,25 +121,37 @@ export async function startStandalone(vault: string, port = 4317, unit: WeightUn
           await refreshAutomaticCsv();
           json(response, 200, {});
         } else if (format === 'csv' || format === 'json') {
-          json(response, 200, { path: await saveStandaloneExport(root, format) });
+          json(response, 200, { path: await saveStandaloneExport(store, format) });
         } else throw new Error('Choose an export format.');
       }
     } else if (request.method !== 'GET') {
       json(response, 405, { error: 'Unsupported request.' });
     } else if (url.pathname === '/api/journal') {
-      const { data } = await readImportVault(root);
-      json(response, 200, { ...data, starters: workoutStarters(data), today: localDate(), unit, vaultKey });
+      const { data } = await store.read();
+      const datedPlans = await listStandaloneDatedPlans(root, folder, data, plans);
+      json(response, 200, { ...data, datedPlans, starters: workoutStarters(data), today: localDate(), unit, vaultKey });
     } else if (url.pathname === '/api/exports') {
       json(response, 200, { automaticCsvError });
     } else if (url.pathname === '/api/progress') {
       const exerciseId = url.searchParams.get('exercise');
       if (exerciseId !== null && !isId(exerciseId)) throw new Error('Choose an exercise.');
-      const { data } = await readImportVault(root);
+      const { data } = await store.read();
       json(response, 200, exerciseProgress(data, exerciseId, unit));
     } else if (url.pathname === '/api/plans' || url.pathname === '/api/plan') {
-      const { data } = await readImportVault(root);
-      if (url.pathname === '/api/plans') json(response, 200, await listStandalonePlans(root, data));
+      const { data, folder } = await store.read();
+      if (url.pathname === '/api/plans') json(response, 200, await listStandalonePlans(root, folder, data));
       else json(response, 200, await readStandalonePlan(root, url.searchParams.get('path') ?? '', data));
+    } else if (url.pathname === '/app.js') {
+      const { outputFiles } = await build({
+        entryPoints: [fileURLToPath(new URL('../standalone/app.ts', import.meta.url))],
+        bundle: true,
+        format: 'esm',
+        target: 'es2020',
+        write: false,
+        plugins: [sveltePlugin],
+        banner: { js: `/*! Svelte and bundled dependencies\n${svelteNotices.join('\n')}\n*/` },
+      });
+      send(response, 200, 'text/javascript', outputFiles[0].text);
     } else {
       const asset = assets.get(url.pathname);
       if (!asset) {

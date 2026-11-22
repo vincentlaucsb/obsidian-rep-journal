@@ -1,5 +1,6 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { build, context } from 'esbuild';
+import { svelteNotices, sveltePlugin } from './scripts/svelte-esbuild.ts';
 
 const svgplot = new URL('./node_modules/svgplot-wasm/', import.meta.url);
 const noticeDir = new URL('licenses/', svgplot);
@@ -13,10 +14,11 @@ const options = {
   platform: 'browser',
   format: 'cjs',
   target: 'es2020',
-  external: ['obsidian'],
+  external: ['obsidian', 'node:fs/promises'],
   loader: { '.wasm': 'binary' },
+  plugins: [sveltePlugin],
   // The npm package is also shipped as part of the single-file Obsidian plugin.
-  banner: { js: `/*! svgplot, OddBird Popover and bundled dependencies\n${[...notices, popoverNotice].join('\n').replaceAll('*/', '* /')}\n*/` },
+  banner: { js: `/*! svgplot, OddBird Popover, Svelte and bundled dependencies\n${[...notices, popoverNotice, ...svelteNotices].join('\n').replaceAll('*/', '* /')}\n*/` },
   // The Obsidian adapter supplies bytes and a local filename before the ESM URL path is needed.
   logOverride: { 'empty-import-meta': 'silent' },
   outfile: 'main.js',
@@ -31,7 +33,7 @@ if (process.argv.includes('--watch')) {
     throw new Error('Obsidian bundle must exclude the standalone entry points and Node-only importer.');
   }
   const externalImports = Object.values(metafile.outputs).flatMap(output => output.imports)
-    .filter(entry => entry.external && entry.path !== 'obsidian');
+    .filter(entry => entry.external && entry.path !== 'obsidian' && entry.path !== 'node:fs/promises');
   if (externalImports.length) {
     throw new Error(`Obsidian bundle contains unsupported external imports: ${externalImports.map(entry => entry.path).join(', ')}`);
   }

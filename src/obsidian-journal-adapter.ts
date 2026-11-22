@@ -9,11 +9,12 @@ import {
   type PlanNote,
 } from './journal-workflow.ts';
 import { localDate, makeId, type WeightUnit } from './model.ts';
+import { DatedPlanRepository, datedPlanDate, isPlanYear } from './repo/plan-repository.ts';
 import type { LedgerRepository } from './repository.ts';
 import { parseWorkoutPlan } from './workout-plan.ts';
 
-type JournalVault = Pick<Vault, 'getMarkdownFiles' | 'getFileByPath' | 'cachedRead'>;
-type JournalRepository = Pick<LedgerRepository, 'read' | 'saveWorkout' | 'saveExercise' | 'saveStarter' | 'writeExport' | 'refreshAutomaticCsv'>;
+type JournalVault = Pick<Vault, 'getMarkdownFiles' | 'getFolderByPath' | 'getFileByPath' | 'cachedRead'>;
+type JournalRepository = Pick<LedgerRepository, 'root' | 'read' | 'saveWorkout' | 'saveExercise' | 'saveStarter' | 'writeExport' | 'refreshAutomaticCsv'>;
 
 export function createObsidianJournalAdapter(
   vault: JournalVault,
@@ -26,6 +27,7 @@ export function createObsidianJournalAdapter(
   },
 ): JournalAdapter {
   let writes: Promise<unknown> = Promise.resolve();
+  const plans = new DatedPlanRepository(repository.root);
   const updateAutomaticCsv = (): Promise<void> => repository.refreshAutomaticCsv().catch(options.reportExportError);
 
   function write<T>(apply: () => Promise<T>): Promise<T> {
@@ -37,19 +39,27 @@ export function createObsidianJournalAdapter(
   return {
     async loadJournal() {
       const data = await repository.read();
-      return { ...data, starters: workoutStarters(data), today: localDate(), unit: options.weightUnit(), vaultKey: options.vaultKey };
+      const plansFolder = vault.getFolderByPath(`${repository.root}/Plans`);
+      const paths = plansFolder?.children.flatMap(({ name, path }) =>
+        isPlanYear(name) ? vault.getFolderByPath(path)?.children.map(({ path }) => path) ?? [] : []) ?? [];
+      const datedPlans = await plans.read(paths, progressExercises(data), async (path) => {
+        const file = vault.getFileByPath(path);
+        if (file && file.stat.size <= maxPlanBytes) return vault.cachedRead(file);
+      });
+      return { ...data, datedPlans, starters: workoutStarters(data), today: localDate(), unit: options.weightUnit(), vaultKey: options.vaultKey };
     },
     async enablePopover() {
       if (!isSupported()) apply();
     },
     async listPlans() {
       const exercises = progressExercises(await repository.read());
-      const files = vault.getMarkdownFiles().filter((file) => isWorkoutPlanPath(file.path) && file.stat.size <= maxPlanBytes);
+      const files = vault.getMarkdownFiles().filter((file) => isWorkoutPlanPath(file.path, repository.root) && file.stat.size <= maxPlanBytes);
       const plans: PlanNote[] = [];
       for (let start = 0; start < files.length; start += 24) {
         const notes = await Promise.all(files.slice(start, start + 24).map(async (file) => {
-          const markdown = await vault.cachedRead(file).catch(() => '');
-          return planNoteFrom(file.path, markdown, exercises);
+          const markdown = await vault.cachedRead(file).catch(() => undefined);
+          if (markdown === undefined) return;
+          return planNoteFrom(file.path, markdown, exercises, !!datedPlanDate(file.path, repository.root));
         }));
         for (const note of notes) if (note) plans.push(note);
       }
