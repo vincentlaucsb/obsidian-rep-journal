@@ -2,17 +2,17 @@ import { randomUUID } from 'node:crypto';
 import { lstat, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseDocument } from 'yaml';
-import { progressExercises } from './analytics.ts';
-import { readCatalogExercise } from './catalog.ts';
-import { automaticCsvFilename, exportSnapshotFilename, serializeExport, toCsv, type ExportFormat } from './exports.ts';
+import { progressExercises } from '../src/analytics.ts';
+import { readCatalogExercise } from '../src/catalog.ts';
+import { automaticCsvFilename, exportSnapshotFilename, serializeExport, toCsv, type ExportFormat } from '../src/exports.ts';
 import { ensureDirectory, exerciseNoteHeader, hasErrorCode, lockImportVault, readImportVault, writeImportVault, writeNewFile } from './import-vault.ts';
-import { journalFolders } from './journal-paths.ts';
-import { maxPlanBytes, planNoteFrom, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit, readLogSetInput, type PlanNote } from './journal-workflow.ts';
+import { journalFolders } from '../src/journal-paths.ts';
+import { maxPlanBytes, planNoteFrom, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit, readLogSetInput, type PlanNote } from '../src/journal-workflow.ts';
 import {
   changeWorkout, createWorkout, errorMessage, exerciseFrontmatter, parseWorkout, type Exercise, type ExerciseNote, type LedgerData,
   type WeightUnit, type WorkoutChange, type WorkoutFile,
-} from './model.ts';
-import { parseWorkoutPlan } from './workout-plan.ts';
+} from '../src/model.ts';
+import { parseWorkoutPlan } from '../src/workout-plan.ts';
 
 function isInside(root: string, path: string): boolean {
   const remainder = relative(root, path);

@@ -1,17 +1,25 @@
+import type { LineChartOptions } from 'svgplot-wasm';
+import type { exerciseProgress } from '../src/journal-workflow.ts';
+import type { WeightUnit } from '../src/model.ts';
+import type { CreateJournalElement } from './app.js';
+
+type StrengthChartRange = '1W' | '1M' | '3M' | '6M' | '1Y' | 'Max';
+type TrendPoint = ReturnType<typeof exerciseProgress>['trend'][number];
+
 const dayMs = 86400000;
-const ranges = [
+const ranges: ReadonlyArray<readonly [StrengthChartRange, string]> = [
   ['1W', '1 week'], ['1M', '1 month'], ['3M', '3 months'], ['6M', '6 months'], ['1Y', '1 year'], ['Max', 'All time'],
 ];
 const rangeMonths = { '1M': 1, '3M': 3, '6M': 6, '1Y': 12 };
 const monthDay = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 const fullDate = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
 
-export function strengthChartRange(points, today, range) {
+export function strengthChartRange<T extends { date: string }>(points: readonly T[], today: string, range: StrengthChartRange) {
   const end = Date.parse(today);
   if (range === 'Max') {
     return {
       points, start: points.length ? Date.parse(points[0].date) : end,
-      end: points.length ? Date.parse(points.at(-1).date) : end,
+      end: points.length ? Date.parse(points[points.length - 1].date) : end,
     };
   }
   let start = end - 7 * dayMs;
@@ -33,7 +41,9 @@ export function strengthChartRange(points, today, range) {
   };
 }
 
-export function strengthChartAxis(start, end, width) {
+export function strengthChartAxis(start: number, end: number, width: number): {
+  xDomain: [number, number]; xTickLabels: NonNullable<LineChartOptions['xTickLabels']>;
+} {
   const days = (end - start) / dayMs;
   const formatter = new Date(start).getUTCFullYear() === new Date(end).getUTCFullYear() ? monthDay : fullDate;
   const count = Math.min(days + 1, 5, Math.max(2, Math.floor((width - 100) / 86) + 1));
@@ -46,10 +56,14 @@ export function strengthChartAxis(start, end, width) {
   };
 }
 
-export function mountStrengthChart(section, points, unit, today, drawChart) {
+export function mountStrengthChart(
+  section: HTMLElement, points: readonly TrendPoint[], unit: WeightUnit, today: string,
+  drawChart: (host: HTMLElement, options: LineChartOptions) => Promise<SVGSVGElement>,
+  createElement: CreateJournalElement,
+): () => void {
   const document = section.ownerDocument;
-  const create = (name, text) => {
-    const element = document.createElement(name);
+  const create = <Tag extends keyof HTMLElementTagNameMap>(name: Tag, text?: string): HTMLElementTagNameMap[Tag] => {
+    const element = createElement(name);
     if (text) element.textContent = text;
     return element;
   };
@@ -84,17 +98,17 @@ export function mountStrengthChart(section, points, unit, today, drawChart) {
   controls.append(previous, next, detail);
   section.append(rangePicker, plot, status, controls);
 
-  let range;
-  let visible = [];
+  let range: StrengthChartRange | undefined;
+  let visible: readonly TrendPoint[] = [];
   let start = 0;
   let end = 0;
   let selected = -1;
-  let markers = [];
+  let markers: Element[] = [];
   let width = 0;
   let pending = 0;
   let mounted = true;
 
-  function select(index) {
+  function select(index: number) {
     if (index < 0 || index >= visible.length) return;
     markers[selected]?.classList.remove('is-selected');
     selected = index;
@@ -106,7 +120,7 @@ export function mountStrengthChart(section, points, unit, today, drawChart) {
     next.disabled = selected === visible.length - 1;
   }
 
-  function selectRange(nextRange) {
+  function selectRange(nextRange: StrengthChartRange) {
     if (range === nextRange) return;
     const sessionId = visible[selected]?.sessionId;
     range = nextRange;
@@ -136,7 +150,7 @@ export function mountStrengthChart(section, points, unit, today, drawChart) {
   previous.addEventListener('click', () => select(selected - 1));
   next.addEventListener('click', () => select(selected + 1));
   plot.addEventListener('click', (event) => {
-    const index = markers.indexOf(event.target);
+    const index = markers.findIndex(marker => marker === event.target);
     if (index >= 0) select(index);
   });
   async function render() {

@@ -1,6 +1,6 @@
 import { initializeSvgplot, lineChart } from 'svgplot-wasm';
 import wasmBinary from 'svgplot-wasm/line-engine.wasm';
-import type { JournalAdapter } from '../standalone/app.js';
+import type { JournalAdapter } from '../standalone/app.ts';
 
 let ready: Promise<void> | undefined;
 

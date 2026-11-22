@@ -37,7 +37,9 @@ SOFTWARE.
 */
 
 const svgNamespace = 'http://www.w3.org/2000/svg';
-const icons = {
+type IconShape = [tag: 'path' | 'rect' | 'line', attributes: Readonly<Record<string, string | number>>];
+type IconName = 'chart-line' | 'plus' | 'calendar' | 'dumbbell' | 'menu';
+const icons: Record<IconName, IconShape[]> = {
   'chart-line': [['path', { d: 'M3 3v16a2 2 0 0 0 2 2h16' }], ['path', { d: 'm19 9-5 5-4-4-3 3' }]],
   plus: [['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]],
   calendar: [
@@ -53,7 +55,7 @@ const icons = {
   menu: [12, 6, 18].map(y => ['line', { x1: 4, x2: 20, y1: y, y2: y }]),
 };
 
-export function lucideIcon(document, name) {
+export function lucideIcon(document: Document, name: IconName): SVGSVGElement {
   const svg = document.createElementNS(svgNamespace, 'svg');
   for (const [attribute, value] of Object.entries({
     class: `lucide lucide-${name}`,
@@ -70,7 +72,7 @@ export function lucideIcon(document, name) {
   })) svg.setAttribute(attribute, value);
   for (const [tag, attributes] of icons[name]) {
     const shape = document.createElementNS(svgNamespace, tag);
-    for (const [attribute, value] of Object.entries(attributes)) shape.setAttribute(attribute, value);
+    for (const [attribute, value] of Object.entries(attributes)) shape.setAttribute(attribute, String(value));
     svg.append(shape);
   }
   return svg;

@@ -1,7 +1,7 @@
 {
   "id": "rep-journal",
   "name": "Rep Journal",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "minAppVersion": "1.7.2",
   "description": "Log workouts, follow training plans, review exercise history, and export your training data.",
   "author": "Vince",

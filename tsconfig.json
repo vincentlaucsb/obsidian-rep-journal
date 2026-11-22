@@ -7,9 +7,8 @@
     "types": ["node"],
     "strict": true,
     "noEmit": true,
-    "allowJs": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "standalone/**/*.js", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "standalone/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"]
 }

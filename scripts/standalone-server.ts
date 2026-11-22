@@ -6,10 +6,11 @@ import { resolve } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { readContextOptions, workoutContext } from './exports.ts';
+import { transform } from 'esbuild';
+import { readContextOptions, workoutContext } from '../src/exports.ts';
 import { readImportVault, resolveImportVaultRoot } from './import-vault.ts';
-import { exerciseProgress, workoutStarters } from './journal-workflow.ts';
-import { errorMessage, isId, isRecord, isUnit, localDate, type WeightUnit } from './model.ts';
+import { exerciseProgress, workoutStarters } from '../src/journal-workflow.ts';
+import { errorMessage, isId, isRecord, isUnit, localDate, type WeightUnit } from '../src/model.ts';
 import {
   addStandaloneStarter, editStandaloneExercise, editStandaloneWorkout, listStandalonePlans, readStandalonePlan, refreshStandaloneCsv, saveStandaloneExport,
   saveStandaloneSet,
@@ -19,14 +20,14 @@ const host = '127.0.0.1';
 const postRoutes = new Set(['/api/sets', '/api/workout-edits', '/api/exercises', '/api/exports', '/api/context']);
 const assets = new Map([
   ['/', { file: 'standalone/index.html', type: 'text/html' }],
-  ['/app.js', { file: 'standalone/app.js', type: 'text/javascript' }],
-  ['/bootstrap.js', { file: 'standalone/bootstrap.js', type: 'text/javascript' }],
-  ['/drafts.js', { file: 'standalone/drafts.js', type: 'text/javascript' }],
-  ['/icons.js', { file: 'standalone/icons.js', type: 'text/javascript' }],
+  ['/app.js', { file: 'standalone/app.ts', type: 'text/javascript' }],
+  ['/bootstrap.js', { file: 'standalone/bootstrap.ts', type: 'text/javascript' }],
+  ['/drafts.js', { file: 'standalone/drafts.ts', type: 'text/javascript' }],
+  ['/icons.js', { file: 'standalone/icons.ts', type: 'text/javascript' }],
   ['/popover-fn.js', { file: 'node_modules/@oddbird/popover-polyfill/dist/popover-fn.js', type: 'text/javascript' }],
   ['/popover-license.txt', { file: 'node_modules/@oddbird/popover-polyfill/LICENSE', type: 'text/plain' }],
-  ['/units.js', { file: 'standalone/units.js', type: 'text/javascript' }],
-  ['/strength-chart.js', { file: 'standalone/strength-chart.js', type: 'text/javascript' }],
+  ['/units.js', { file: 'standalone/units.ts', type: 'text/javascript' }],
+  ['/strength-chart.js', { file: 'standalone/strength-chart.ts', type: 'text/javascript' }],
   ['/svgplot/charts.js', { file: 'node_modules/svgplot-wasm/charts.js', type: 'text/javascript' }],
   ['/svgplot/line.js', { file: 'node_modules/svgplot-wasm/line.js', type: 'text/javascript' }],
   ['/svgplot/line-engine.mjs', { file: 'node_modules/svgplot-wasm/line-engine.mjs', type: 'text/javascript' }],
@@ -134,8 +135,17 @@ export async function startStandalone(vault: string, port = 4317, unit: WeightUn
       else json(response, 200, await readStandalonePlan(root, url.searchParams.get('path') ?? '', data));
     } else {
       const asset = assets.get(url.pathname);
-      if (!asset) json(response, 404, { error: 'Page not found.' });
-      else send(response, 200, asset.type, await readFile(new URL(`../${asset.file}`, import.meta.url)));
+      if (!asset) {
+        json(response, 404, { error: 'Page not found.' });
+        return;
+      }
+      const content = await readFile(new URL(`../${asset.file}`, import.meta.url));
+      if (asset.file.endsWith('.ts')) {
+        const { code } = await transform(content.toString('utf8'), { loader: 'ts', format: 'esm', target: 'es2020', sourcefile: asset.file });
+        send(response, 200, asset.type, code);
+      } else {
+        send(response, 200, asset.type, content);
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { strengthChartAxis, strengthChartRange } from '../standalone/strength-chart.js';
+import { strengthChartAxis, strengthChartRange } from '../standalone/strength-chart.ts';
 
 void test('strength chart ranges follow calendar arithmetic and retain every session on an included date', () => {
   const points = [

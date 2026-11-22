@@ -1,5 +1,5 @@
 import { ItemView, Notice, type TFile, type WorkspaceLeaf } from 'obsidian';
-import { mountJournal, type JournalAdapter, type MountedJournal } from '../standalone/app.js';
+import { mountJournal, type JournalAdapter, type MountedJournal } from '../standalone/app.ts';
 import { errorMessage, type WeightUnit } from './model.ts';
 
 export const MODERN_JOURNAL_VIEW = 'rep-journal-today';
@@ -20,7 +20,10 @@ export class ModernJournalView extends ItemView {
     this.containerEl.addClass('rep-journal-modern-view');
     this.contentEl.empty();
     this.contentEl.addClass('rep-journal-modern-content');
-    this.journal = mountJournal(this.contentEl.createDiv(), this.adapter);
+    const journalRoot = this.contentEl.createDiv();
+    const journalWindow = journalRoot.ownerDocument.defaultView;
+    if (!journalWindow) return;
+    this.journal = mountJournal(journalRoot, this.adapter, (tag) => journalWindow.createEl(tag));
     await this.journal.ready;
     if (!this.journal) return;
     this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {

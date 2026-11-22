@@ -1,6 +1,6 @@
 import { apply, isSupported } from '@oddbird/popover-polyfill/fn';
 import type { Vault } from 'obsidian';
-import type { JournalAdapter } from '../standalone/app.js';
+import type { JournalAdapter } from '../standalone/app.ts';
 import { progressExercises } from './analytics.ts';
 import { readContextOptions, serializeExport, workoutContext } from './exports.ts';
 import {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { WorkoutNoteDrafts } from '../standalone/drafts.js';
+import { WorkoutNoteDrafts } from '../standalone/drafts.ts';
 import { exerciseHistory, estimatedMax, progressExercises, strengthTrend } from '../src/analytics.ts';
 import { matchesExerciseName, matchesTags, starterExercises } from '../src/catalog.ts';
 import { toCsv, toJson, workoutContext, type ContextOptions } from '../src/exports.ts';

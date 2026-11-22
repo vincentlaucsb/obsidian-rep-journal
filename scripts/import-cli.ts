@@ -2,8 +2,8 @@ import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
 import { lockImportVault, readImportVault, resolveImportVaultRoot, writeImportVault } from './import-vault.ts';
-import { errorMessage, type ExerciseChoice, type LedgerData } from './model.ts';
-import { importExerciseCatalog, planWorkoutImport, type ImportIssue, type WorkoutImportPlan } from './workout-import.ts';
+import { errorMessage, type ExerciseChoice, type LedgerData } from '../src/model.ts';
+import { importExerciseCatalog, planWorkoutImport, type ImportIssue, type WorkoutImportPlan } from '../src/workout-import.ts';
 
 type ImportMode = 'plan' | 'apply' | 'catalog';
 

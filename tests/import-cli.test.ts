@@ -11,7 +11,7 @@ import { starterExercises } from '../src/catalog.ts';
 import { exerciseFilename } from '../src/journal-paths.ts';
 import { stringify } from 'yaml';
 
-const cli = fileURLToPath(new URL('../src/import-cli.ts', import.meta.url));
+const cli = fileURLToPath(new URL('../scripts/import-cli.ts', import.meta.url));
 const testDate = '2026-11-20';
 
 async function scratchVault(context: TestContext): Promise<string> {

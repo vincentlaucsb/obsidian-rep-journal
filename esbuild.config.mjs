@@ -27,6 +27,9 @@ if (process.argv.includes('--watch')) {
   await watcher.watch();
 } else {
   const { metafile } = await build({ ...options, metafile: true });
+  if (Object.keys(metafile.inputs).some(path => path.startsWith('scripts/') || path === 'standalone/bootstrap.ts')) {
+    throw new Error('Obsidian bundle must exclude the standalone entry points and Node-only importer.');
+  }
   const externalImports = Object.values(metafile.outputs).flatMap(output => output.imports)
     .filter(entry => entry.external && entry.path !== 'obsidian');
   if (externalImports.length) {

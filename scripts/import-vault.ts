@@ -6,14 +6,14 @@ import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
-import { readCatalogExercise } from './catalog.ts';
-import { appendExerciseGuides } from './exercise-guides.ts';
-import { exerciseFilename, journalFolder, journalFolders, legacyFolder, nextWorkoutSession, workoutFilename } from './journal-paths.ts';
+import { readCatalogExercise } from '../src/catalog.ts';
+import { appendExerciseGuides } from '../src/exercise-guides.ts';
+import { exerciseFilename, journalFolder, journalFolders, legacyFolder, nextWorkoutSession, workoutFilename } from '../src/journal-paths.ts';
 import {
   compareWorkouts, errorMessage, exerciseFrontmatter, isRecord, parseWorkout, readExercise,
   type Exercise, type ExerciseNote, type LedgerData, type Workout, type WorkoutFile,
-} from './model.ts';
-import { type ImportIssue, type WorkoutImportPlan } from './workout-import.ts';
+} from '../src/model.ts';
+import { type ImportIssue, type WorkoutImportPlan } from '../src/workout-import.ts';
 
 interface ImportVault {
   root: string;

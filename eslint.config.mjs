@@ -2,7 +2,7 @@ import eslintComments from '@eslint-community/eslint-plugin-eslint-comments';
 import obsidianmd from 'eslint-plugin-obsidianmd';
 import { defineConfig, globalIgnores } from 'eslint/config';
 
-const nodeOnly = ['src/import-cli.ts', 'src/import-vault.ts', 'src/standalone-*.ts', 'tests/**/*.ts'];
+const nodeOnly = ['scripts/**/*.ts', 'tests/**/*.ts'];
 const unusedVariables = { args: 'all', argsIgnorePattern: '^_', caughtErrors: 'all', caughtErrorsIgnorePattern: '^_', ignoreRestSiblings: true };
 
 export default defineConfig(
@@ -48,8 +48,8 @@ export default defineConfig(
     },
   },
   {
-    files: ['src/**/*.ts', 'standalone/**/*.js'],
-    ignores: [...nodeOnly, 'standalone/bootstrap.js'],
+    files: ['src/**/*.ts', 'standalone/**/*.ts'],
+    ignores: ['standalone/bootstrap.ts'],
     rules: {
       'obsidianmd/no-nodejs-modules': 'error',
       'no-restricted-syntax': ['error', {
@@ -76,12 +76,11 @@ export default defineConfig(
     },
   },
   {
-    files: ['standalone/bootstrap.js'],
-    languageOptions: { globals: { document: 'readonly' } },
-  },
-  {
-    files: ['standalone/**/*.js'],
-    rules: { 'no-dupe-keys': 'error', 'no-undef': 'error', 'no-unreachable': 'error' },
+    files: ['standalone/bootstrap.ts'],
+    rules: {
+      // This browser-only entry point does not have Obsidian's DOM helpers.
+      'obsidianmd/prefer-create-el': 'off',
+    },
   },
   {
     files: ['tests/standalone.test.ts'],

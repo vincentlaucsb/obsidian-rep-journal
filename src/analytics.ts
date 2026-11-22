@@ -1,4 +1,4 @@
-import { convertWeight } from '../standalone/units.js';
+import { convertWeight } from '../standalone/units.ts';
 import {
   compareWorkouts, setMeasurements, type ExerciseChoice, type LedgerData, type WeightUnit,
   type Workout, type WorkoutSet,

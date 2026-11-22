@@ -5,9 +5,9 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { stringify } from 'yaml';
 import { toCsv, toJson } from '../src/exports.ts';
-import { readImportVault } from '../src/import-vault.ts';
+import { readImportVault } from '../scripts/import-vault.ts';
 import { changeWorkout, createWorkout, exerciseFrontmatter, makeId, parseWorkout, SCHEMA_VERSION, type ExerciseDetails } from '../src/model.ts';
-import { startStandalone } from '../src/standalone-server.ts';
+import { startStandalone } from '../scripts/standalone-server.ts';
 
 void test('standalone loads existing files and writes only the selected or new workout', async (context) => {
   const temporaryBase = resolve(tmpdir());

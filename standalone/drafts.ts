@@ -1,20 +1,26 @@
-export class WorkoutNoteDrafts {
-  #drafts = new Map();
+interface NoteDraft {
+  original: string;
+  value: string;
+  newWorkoutId?: string;
+}
 
-  get(date, workoutId) {
+export class WorkoutNoteDrafts {
+  #drafts = new Map<string, NoteDraft>();
+
+  get(date: string, workoutId: string | null): NoteDraft | undefined {
     return this.#drafts.get(workoutId ?? date);
   }
 
-  clear(date, workoutId) {
+  clear(date: string, workoutId: string | null): void {
     this.#drafts.delete(workoutId ?? date);
   }
 
-  save(date, workoutId, draft) {
+  save(date: string, workoutId: string | null, draft: NoteDraft): void {
     if (draft.value === draft.original) this.clear(date, workoutId);
     else this.#drafts.set(workoutId ?? date, draft);
   }
 
-  associate(date, workoutId) {
+  associate(date: string, workoutId: string): void {
     const draft = this.get(date, null);
     if (!draft) return;
     this.clear(date, null);
