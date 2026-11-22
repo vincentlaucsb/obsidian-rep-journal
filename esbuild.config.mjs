@@ -5,6 +5,7 @@ const svgplot = new URL('./node_modules/svgplot-wasm/', import.meta.url);
 const noticeDir = new URL('licenses/', svgplot);
 const noticeFiles = ['LICENSE', ...(await readdir(noticeDir)).sort().map(name => 'licenses/' + name)];
 const notices = await Promise.all(noticeFiles.map(async name => `${name}\n${await readFile(new URL(name, svgplot), 'utf8')}`));
+const popoverNotice = await readFile(new URL('./node_modules/@oddbird/popover-polyfill/LICENSE', import.meta.url), 'utf8');
 
 const options = {
   entryPoints: ['src/main.ts'],
@@ -15,7 +16,7 @@ const options = {
   external: ['obsidian'],
   loader: { '.wasm': 'binary' },
   // The npm package is also shipped as part of the single-file Obsidian plugin.
-  banner: { js: `/*! svgplot and bundled dependencies\n${notices.join('\n').replaceAll('*/', '* /')}\n*/` },
+  banner: { js: `/*! svgplot, OddBird Popover and bundled dependencies\n${[...notices, popoverNotice].join('\n').replaceAll('*/', '* /')}\n*/` },
   // The Obsidian adapter supplies bytes and a local filename before the ESM URL path is needed.
   logOverride: { 'empty-import-meta': 'silent' },
   outfile: 'main.js',

@@ -16,6 +16,10 @@ function post(path, input) {
 
 mountJournal(root, {
   loadJournal: () => request('/api/journal'),
+  enablePopover: async () => {
+    const { apply, isSupported } = await import('./popover-fn.js');
+    if (!isSupported()) apply();
+  },
   listPlans: () => request('/api/plans'),
   readPlan: (path) => request('/api/plan?path=' + encodeURIComponent(path)),
   makeSetId: () => browser.crypto.randomUUID(),

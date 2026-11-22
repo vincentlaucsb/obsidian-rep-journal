@@ -48,6 +48,13 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.equal(index.status, 200);
   assert.match(await index.text(), /Rep Journal[\s\S]*\/bootstrap\.js/);
   assert.match(await (await fetch(`${origin}/bootstrap.js`)).text(), /import \{ mountJournal \}/);
+  const popover = await fetch(`${origin}/popover-fn.js`);
+  assert.equal(popover.status, 200);
+  assert.match(popover.headers.get('Content-Type') ?? '', /^text\/javascript/);
+  assert.match(await (await fetch(`${origin}/popover-license.txt`)).text(), /Copyright .* OddBird/);
+  const icons = await fetch(`${origin}/icons.js`);
+  assert.equal(icons.status, 200);
+  assert.match(icons.headers.get('content-type') ?? '', /^text\/javascript\b/);
   assert.match(await (await fetch(`${origin}/style.css`)).text(), /\.rep-journal-modern \{[\s\S]*var\(--background-primary/);
   const journal = await (await fetch(`${origin}/api/journal`)).json() as { today: string; unit: string; exercises: Array<{ id: string }>; workouts: unknown[] };
   assert.equal(journal.unit, 'kg');

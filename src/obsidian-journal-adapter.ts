@@ -38,6 +38,10 @@ export function createObsidianJournalAdapter(
       const data = await repository.read();
       return { ...data, starters: workoutStarters(data), today: localDate(), unit: options.weightUnit(), vaultKey: options.vaultKey };
     },
+    async enablePopover() {
+      const { apply, isSupported } = await import('@oddbird/popover-polyfill/fn');
+      if (!isSupported()) apply();
+    },
     async listPlans() {
       const exercises = progressExercises(await repository.read());
       const files = vault.getMarkdownFiles().filter((file) => isWorkoutPlanPath(file.path) && file.stat.size <= maxPlanBytes);

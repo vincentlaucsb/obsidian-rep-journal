@@ -13,6 +13,8 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
   --accent: var(--interactive-accent, light-dark(#34573d, #d0e69e));
   --on-accent: var(--text-on-accent, light-dark(#f8fff3, #25341e));
   --plan: var(--background-secondary-alt, light-dark(#e0ead7, #2f3e2d));
+  --plan-next: var(--color-green, light-dark(#23754b, #77d79f));
+  --plan-member: var(--color-blue, light-dark(#2e65ab, #82b8f8));
   --error: var(--text-error, light-dark(#932c24, #ffaea5));
   --shadow: var(--shadow-s, 0 2px 9px light-dark(#22311e12, #00000030));
   --control: var(--interactive-normal, var(--surface));
@@ -55,14 +57,56 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .empty { color: var(--muted); padding: 1.2rem 0; }
 .rep-journal-modern .warning { color: var(--error); overflow-wrap: anywhere; }
 
-.rep-journal-modern .masthead { border-bottom: 1px solid var(--border); background: var(--surface); }
+.rep-journal-modern .masthead { position: sticky; inset-block-start: 0; z-index: 2; border-bottom: 1px solid var(--border); background: var(--surface); }
 .rep-journal-modern .masthead-content, .rep-journal-modern .rj-workspace { max-width: 43rem; margin-inline: auto; }
-.rep-journal-modern .masthead-content { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .8rem 1rem; }
-.rep-journal-modern .wordmark { border-color: transparent; background: transparent; padding-inline: 0; font-weight: 740; letter-spacing: -.065em; font-size: 1.23rem; }
+.rep-journal-modern .masthead-content { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding: .48rem 1rem; }
+.rep-journal-modern button.wordmark {
+  min-width: 0;
+  height: auto;
+  border-color: transparent;
+  background: transparent;
+  padding-inline: 0;
+  font-weight: 740;
+  letter-spacing: -.065em;
+  font-size: 1.23rem;
+  line-height: 1.14;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .rep-journal-modern .wordmark:enabled:hover { border-color: transparent; }
-.rep-journal-modern .masthead nav { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
-.rep-journal-modern .masthead nav button { font-size: .86rem; }
-.rep-journal-modern .masthead nav button[aria-current='page'] { border-color: var(--accent); }
+.rep-journal-modern .masthead nav { display: flex; flex: none; gap: .3rem; }
+.rep-journal-modern .masthead .nav-icon { display: grid; place-items: center; width: 2.75rem; padding: 0; }
+.rep-journal-modern .nav-icon svg { width: var(--icon-size-m, 1.125rem); height: var(--icon-size-m, 1.125rem); }
+.rep-journal-modern .masthead nav button[aria-current='page'],
+.rep-journal-modern .nav-icon:is([aria-expanded='true'], [data-current]) { border-color: var(--accent); }
+.rep-journal-modern .nav-overflow {
+  display: none;
+  position: fixed;
+  inset: auto;
+  top: var(--menu-top);
+  inset-inline-end: var(--menu-inset);
+  width: 12rem;
+  max-width: var(--menu-space);
+  max-height: calc(100dvh - var(--menu-top) - .5rem);
+  margin: 0;
+  padding: .35rem;
+  gap: .25rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l, .75rem);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.rep-journal-modern .nav-overflow:is(:popover-open, .\:popover-open) { display: grid; }
+.rep-journal-modern .nav-overflow button {
+  height: auto;
+  min-width: 0;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .rep-journal-modern .wordmark, .rep-journal-modern .text-button, .rep-journal-modern .primary { box-shadow: none; }
 .rep-journal-modern .rj-workspace { display: flex; flex: 1; flex-direction: column; width: 100%; padding: 1.4rem 1rem 1rem; }
 
@@ -70,10 +114,16 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .session-header { display: grid; grid-template-columns: 2.75rem minmax(0, 1fr) 2.75rem; align-items: center; gap: .5rem; text-align: center; }
 .rep-journal-modern .session-title { display: grid; gap: .18rem; }
 .rep-journal-modern .arrow { width: 2.75rem; padding-inline: 0; font-size: 1.2rem; }
-.rep-journal-modern .log-actions { display: flex; justify-content: flex-end; align-items: center; gap: .5rem; }
+.rep-journal-modern .log-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: .5rem; }
 .rep-journal-modern .log-actions select { min-width: 0; margin-right: auto; }
 .rep-journal-modern .log-groups { display: grid; gap: .72rem; }
 .rep-journal-modern .exercise-card, .rep-journal-modern .session-notes { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius-l, 1rem); padding: .8rem .95rem; box-shadow: var(--shadow); }
+.rep-journal-modern .exercise-card-header { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.rep-journal-modern .exercise-card-header h2 { overflow-wrap: anywhere; }
+.rep-journal-modern .exercise-card-actions { display: flex; flex: none; gap: .2rem; }
+.rep-journal-modern button.exercise-card-action { display: grid; place-items: center; min-width: 2.75rem; padding: 0; border-color: transparent; background: transparent; box-shadow: none; }
+.rep-journal-modern button.exercise-card-action:enabled:hover { background: var(--control); }
+.rep-journal-modern .exercise-card-action svg { width: var(--icon-size-m, 1.125rem); height: var(--icon-size-m, 1.125rem); }
 .rep-journal-modern .exercise-card ol { margin: .45rem 0 0; list-style: none; padding: 0; }
 .rep-journal-modern .set-row { border-top: 1px solid var(--border); padding: .4rem .1rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: .35rem .7rem; font-variant-numeric: tabular-nums; }
 .rep-journal-modern .set-row:last-child { padding-bottom: .1rem; }
@@ -98,7 +148,8 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
   box-shadow: var(--shadow);
 }
 .rep-journal-modern .plan-banner .text-button { font-size: .86rem; }
-.rep-journal-modern .plan-banner strong { overflow-wrap: anywhere; }
+.rep-journal-modern .plan-banner > div { min-width: 0; overflow-wrap: anywhere; }
+.rep-journal-modern .plan-banner > button { flex: none; }
 
 .rep-journal-modern .page { display: grid; gap: .9rem; }
 .rep-journal-modern .page > .text-button { justify-self: start; }
@@ -112,21 +163,59 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .calendar-day:enabled:hover { border-color: var(--accent); }
 .rep-journal-modern .calendar-date-picker { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; }
 .rep-journal-modern .calendar-date-picker label { display: grid; gap: .35rem; }
-.rep-journal-modern .calendar-day[aria-current='date'], .rep-journal-modern .exercise-choice[aria-pressed='true'] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.rep-journal-modern .calendar-day[aria-current='date'] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .rep-journal-modern .calendar-day[aria-pressed='true'] { border-color: var(--accent); }
 .rep-journal-modern .markers { display: flex; align-items: center; gap: .18rem; }
 .rep-journal-modern .markers i { width: .31rem; height: .31rem; border-radius: 50%; background: var(--accent); }
 .rep-journal-modern .calendar-day[aria-current='date'] .markers i { background: currentColor; }
 .rep-journal-modern .legend { display: flex; align-items: center; gap: .45rem; }
 .rep-journal-modern .calendar-sessions, .rep-journal-modern .plan-list { display: grid; gap: .45rem; }
-.rep-journal-modern .calendar-sessions button, .rep-journal-modern .plan-option { text-align: left; }
-.rep-journal-modern .plan-option { display: grid; text-wrap: wrap; overflow-wrap: anywhere; }
+.rep-journal-modern .calendar-sessions button { text-align: left; }
+.rep-journal-modern .plan-list { grid-template-columns: minmax(0, 1fr); }
+.rep-journal-modern button.plan-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  justify-items: start;
+  gap: .12rem;
+  width: 100%;
+  height: auto;
+  min-width: 0;
+  white-space: normal;
+  text-align: start;
+  overflow-wrap: anywhere;
+}
+.rep-journal-modern button[data-plan-status='next'] { --plan-marker: var(--plan-next); }
+.rep-journal-modern button[data-plan-status='planned'] { --plan-marker: var(--plan-member); }
+.rep-journal-modern button[data-plan-status] {
+  background: color-mix(in srgb, var(--control) 84%, var(--plan-marker));
+  border-inline-start: 3px solid var(--plan-marker);
+}
+.rep-journal-modern button[data-plan-status] .secondary { color: var(--text); }
 .rep-journal-modern .plan-controls { display: flex; gap: .5rem; flex-wrap: wrap; }
 .rep-journal-modern .plan-section { display: grid; gap: .55rem; border: 1px solid var(--border); border-radius: var(--radius-l, 1rem); padding: .75rem .83rem; background: var(--surface); }
-.rep-journal-modern .current-section { background: var(--plan); }
-.rep-journal-modern .section-heading { display: flex; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.rep-journal-modern .current-section {
+  background: color-mix(in srgb, var(--surface) 91%, var(--plan-next));
+  border-color: var(--plan-next);
+  border-inline-start-width: 3px;
+}
+.rep-journal-modern .active-section-label {
+  justify-self: start;
+  padding: .13rem .5rem;
+  border-radius: var(--radius-s, .3rem);
+  background: color-mix(in srgb, var(--surface) 76%, var(--plan-next));
+  font-size: .86rem;
+  font-weight: 650;
+}
+.rep-journal-modern .section-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: .6rem; align-items: baseline; }
+.rep-journal-modern .section-heading h2 { min-width: 0; overflow-wrap: anywhere; }
+.rep-journal-modern button.plan-done { height: auto; justify-self: end; }
+.rep-journal-modern .current-section button.plan-done { border-color: var(--plan-next); }
 .rep-journal-modern .plan-exercise { display: grid; gap: .22rem; border-top: 1px solid var(--border); padding-top: .45rem; }
-.rep-journal-modern .exercise-choice { justify-self: start; white-space: normal; text-align: left; }
+.rep-journal-modern .plan-exercise-heading { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.rep-journal-modern button.exercise-choice { height: auto; min-width: 0; white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.rep-journal-modern .plan-exercise-heading h3 { min-width: 0; overflow-wrap: anywhere; }
+.rep-journal-modern .plan-exercise-heading .primary { flex: none; }
 .rep-journal-modern .entry-form, .rep-journal-modern .entry-form label { display: grid; gap: .5rem; }
 .rep-journal-modern .entry-form { gap: .85rem; }
 .rep-journal-modern .entry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
@@ -164,14 +253,8 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .context-preview textarea { font-family: var(--font-monospace, ui-monospace, monospace); font-size: .86rem; }
 .rep-journal-modern [hidden] { display: none !important; }
 
-@container (max-width: 560px) {
-  .rep-journal-modern .masthead-content { flex-wrap: wrap; }
-  .rep-journal-modern .masthead nav { justify-content: flex-start; }
-}
-
 @container (max-width: 360px) {
   .rep-journal-modern .masthead-content, .rep-journal-modern .rj-workspace { padding-inline: .68rem; }
   .rep-journal-modern .masthead nav { gap: .2rem; }
-  .rep-journal-modern .masthead nav button { padding-inline: .48rem; }
-  .rep-journal-modern .wordmark { font-size: 1.1rem; }
+  .rep-journal-modern button.wordmark { font-size: 1.1rem; }
 }

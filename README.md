@@ -12,21 +12,21 @@ npm run standalone -- --vault "path/to/vault"
 
 Open [Rep Journal](http://127.0.0.1:4317) in a browser on the same computer. Use `--unit kg` for kilograms or `--port 4320` for a different port.
 
-**Today** groups logged sets by exercise. Use the arrows to step through sessions or open **Calendar** to choose a date. You can log sets and notes on an earlier date, including a day with no existing workout. When a date already has a session, choose **New workout** in the session picker to start another one.
+**Today** groups logged sets by exercise. Select **Rep Journal** in the pinned header to return to Today. Use the arrows to step through sessions or open **Calendar** to choose a date. You can log sets and notes on an earlier date, including a day with no existing workout. When a date already has a session, choose **New workout** in the session picker to start another one.
 
 Choose **Log set** to search by exercise name or alias and filter by grouped tags. Picking a starter exercise adds its Markdown note to the vault. You can also create a custom exercise from the picker. **Use last set** fills the compatible fields from the exercise's last session.
 
-**Plans** opens the full Markdown plan. Once you start one, **Resume** and **View plan** are available in the banner at the bottom of Today. Sets saved through **Resume** advance supersets, and the app remembers the active plan and position for that vault.
+Choose **Follow a plan** beside **Log set** on an empty day, or open **Menu → Plans** at any time. Once a plan is active, choose **Start** beside the next exercise in the plan or in Today’s banner to open its set form. Sets logged this way advance supersets. The regular **Log set** picker suggests the next exercise first, followed by the other exercises in the plan.
 
 Use **Edit set** to correct or delete a set in any session, and **Workout notes** to write or update that session's note. **Exercises** manages display names, aliases, measurements, grouped tags, and archived exercises. The app reads and saves the same files in `Rep Journal` and `Set Ledger`. Edit [workout plans](docs/WORKOUT-PLANS.md) in your Markdown editor.
 
 ## Progress and export
 
-In either app, **Progress** charts estimated 1RM by calendar date for sessions with an eligible strength set. It starts with the past year. Use **1W**, **1M**, **3M**, **6M**, **1Y**, or **Max** to change the chart range. Select a point or use **Previous** and **Next** to see the date, estimate and recorded set. Exercise history lists all recorded sets and keeps their logged units. Search by exercise name or alias and filter by grouped tags. **Edit exercise** opens the exercise settings.
+In either app, open **Menu → Progress** to chart estimated 1RM by calendar date for sessions with an eligible strength set. It starts with the past year. Use **1W**, **1M**, **3M**, **6M**, **1Y**, or **Max** to change the chart range. Select a point or use **Previous** and **Next** to see the date, estimate and recorded set. Exercise history lists all recorded sets and keeps their logged units. Search by exercise name or alias and filter by grouped tags. **Edit exercise** opens the exercise settings.
 
 The 1RM chart uses [svgplot-wasm](https://www.npmjs.com/package/svgplot-wasm). Obsidian bundles the renderer in the plugin and the standalone app serves it locally.
 
-**Export CSV** and **Export JSON** save dated copies in the vault's `Exports` folder under `Rep Journal` or `Set Ledger`. The fixed `rep-journal.csv` updates when you log or edit training data. Use **Refresh automatic CSV** to update it after external changes. **Prepare workout context** previews a date-filtered snapshot for your preferred LLM. You can add a training goal, equipment, days per week, and opt in to including workout notes before copying.
+In **Menu → Export**, **Export CSV** and **Export JSON** save dated copies in the vault's `Exports` folder under `Rep Journal` or `Set Ledger`. The fixed `rep-journal.csv` updates when you log or edit training data. Use **Refresh automatic CSV** to update it after external changes. **Prepare workout context** previews a date-filtered snapshot for your preferred LLM. You can add a training goal, equipment, days per week, and opt in to including workout notes before copying.
 
 ## Obsidian plugin
 
@@ -34,7 +34,7 @@ The 1RM chart uses [svgplot-wasm](https://www.npmjs.com/package/svgplot-wasm). O
 
 Choose **Open exercise note** while logging to open the selected exercise’s Markdown note in a new tab. In **Settings → Rep Journal**, choose pounds or kilograms for new entries and estimated 1RM.
 
-Choose **Plans** in Today to review and start a plan. Resume it from the banner at the bottom of Today.
+Choose **Menu → Plans** to review and start a plan. Use **Start** in the banner at the bottom of Today to log the next planned exercise.
 
 Use the [command-line JSON importer](docs/IMPORT.md) to bring in workouts from FitNotes or another tracker. The importer validates the file and reports errors in JSON so an LLM can help correct them.
 

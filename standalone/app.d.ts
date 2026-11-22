@@ -6,6 +6,7 @@ import type { parseWorkoutPlan } from '../src/workout-plan.ts';
 
 export interface JournalAdapter {
   loadJournal(): Promise<LedgerData & { starters: ExerciseChoice[]; today: string; unit: WeightUnit; vaultKey: string }>;
+  enablePopover(): Promise<void>;
   listPlans(): Promise<PlanNote[]>;
   readPlan(path: string): Promise<ReturnType<typeof parseWorkoutPlan>>;
   makeSetId(): string;

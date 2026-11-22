@@ -1,4 +1,5 @@
 import { WorkoutNoteDrafts } from './drafts.js';
+import { lucideIcon } from './icons.js';
 import { mountStrengthChart } from './strength-chart.js';
 import { convertDistance, convertWeight } from './units.js';
 
@@ -12,7 +13,7 @@ export function mountJournal(root, adapter) {
   let disposeStrengthChart;
   root.classList.add('rep-journal-modern');
   const state = { journal: null, date: null, selected: null, newSession: false, screen: 'log', active: null, review: null, saving: false };
-  const progress = { report: null, exerciseId: null, search: '', tags: new Set(), error: '' };
+  const progress = { report: null, exerciseId: null, workout: null, search: '', tags: new Set(), error: '' };
   const fileExport = { pending: false, error: false, status: '', automaticError: '' };
   const noteDrafts = new WorkoutNoteDrafts();
   const measurementNames = { weight: 'Weight', reps: 'Reps', time: 'Time (seconds or mm:ss)', distance: 'Distance' };
@@ -35,19 +36,66 @@ export function mountJournal(root, adapter) {
   }
 
   function button(label, action, options = {}) {
-    const control = el('button', { type: 'button', class: options.className, 'aria-label': options.label }, label);
+    const control = el('button', { type: 'button', class: options.className, 'aria-label': options.label, title: options.title }, label);
     control.disabled = Boolean(options.disabled);
     control.addEventListener('click', () => { if (!state.saving) action(); });
     return control;
   }
 
-  const navigation = el('nav', { 'aria-label': 'Rep Journal' });
+  const overflowId = `rj-navigation-${adapter.makeSetId()}`;
+  const calendar = button(lucideIcon(document, 'calendar'), () => navigate(openCalendar), { className: 'nav-icon', label: 'Calendar', title: 'Calendar' });
+  const exercises = button(lucideIcon(document, 'dumbbell'), () => navigate(() => view('exercises')),
+    { className: 'nav-icon', label: 'Exercises', title: 'Exercises' });
+  const overflowToggle = el('button', {
+    type: 'button', class: 'nav-icon', 'aria-label': 'Menu', title: 'Menu',
+    'aria-expanded': 'false', 'aria-controls': overflowId, popovertarget: overflowId,
+  }, lucideIcon(document, 'menu'));
+  const menuItems = [
+    [['plans', 'plan'], 'Plans', openPlans],
+    [['progress'], 'Progress', () => openProgress(progress.exerciseId, null)],
+    [['export'], 'Export', () => view('export')],
+  ].map(([screens, label, action]) => ({
+    screens, control: button(label, () => navigate(action)),
+  }));
+  const overflow = el('div', { id: overflowId, class: 'nav-overflow', popover: 'auto' }, ...menuItems.map(({ control }) => control));
+  const navigation = el('nav', { 'aria-label': 'Rep Journal', hidden: '' }, calendar, exercises, overflowToggle, overflow);
+  const home = button('Rep Journal', () => { if (state.journal) navigate(goToday); },
+    { className: 'wordmark', label: 'Rep Journal, Today', title: 'Today' });
+  const header = el('div', { class: 'masthead-content' }, home, navigation);
   const app = el('main', { class: 'rj-workspace', id: standalone ? 'app' : undefined, 'aria-busy': 'true' },
     el('p', { role: 'status' }, 'Loading workouts…'));
-  root.replaceChildren(
-    el('header', { class: 'masthead' }, el('div', { class: 'masthead-content' },
-      button('Rep Journal', () => { if (state.journal) goToday(); }, { className: 'wordmark' }), navigation)),
-    app);
+  root.replaceChildren(el('header', { class: 'masthead' }, header), app);
+
+  function navigate(action) {
+    overflow.hidePopover?.();
+    action();
+    root.scrollIntoView({ block: 'start' });
+  }
+
+  function positionOverflow() {
+    const { bottom, left, right } = overflowToggle.getBoundingClientRect();
+    const rtl = hostWindow.getComputedStyle(overflowToggle).direction === 'rtl';
+    overflow.style.setProperty('--menu-top', `${bottom + 6}px`);
+    overflow.style.setProperty('--menu-inset', `${rtl ? left : document.documentElement.clientWidth - right}px`);
+    overflow.style.setProperty('--menu-space', `${header.clientWidth}px`);
+  }
+
+  overflow.addEventListener('beforetoggle', (event) => {
+    if (event.newState === 'open') positionOverflow();
+  });
+  overflow.addEventListener('toggle', (event) => {
+    overflowToggle.setAttribute('aria-expanded', String(event.newState === 'open'));
+  });
+  const menuResize = new hostWindow.ResizeObserver(() => {
+    if (overflowToggle.getAttribute('aria-expanded') === 'true') positionOverflow();
+  });
+  menuResize.observe(header);
+  if (typeof overflow.hidePopover !== 'function') {
+    overflowToggle.disabled = true;
+    void adapter.enablePopover().then(() => {
+      overflowToggle.disabled = typeof overflow.hidePopover !== 'function';
+    }).catch(() => { overflowToggle.title = 'Menu unavailable'; });
+  }
 
   function notes(value) {
     return value ? el('p', { class: 'notes' }, value) : undefined;
@@ -69,6 +117,7 @@ export function mountJournal(root, adapter) {
   }
 
   function view(screen) {
+    if (state.screen !== screen) overflow.hidePopover?.();
     state.screen = screen;
     render();
   }
@@ -97,18 +146,23 @@ export function mountJournal(root, adapter) {
     disposeStrengthChart?.();
     disposeStrengthChart = undefined;
     if (!mounted) return;
-    navigation.replaceChildren();
     app.replaceChildren();
     app.setAttribute('aria-busy', 'false');
     if (!state.journal) return;
 
-    if (state.screen !== 'log' || state.date) navigation.append(button('Today', goToday));
-    navigation.append(button('Calendar', openCalendar), button('Plans', openPlans), button('Exercises', () => view('exercises')));
-    for (const [screen, label, action] of [['progress', 'Progress', () => openProgress()], ['export', 'Export', () => view('export')]]) {
-      const control = button(label, action);
-      if (screen === state.screen) control.setAttribute('aria-current', 'page');
-      navigation.append(control);
+    navigation.hidden = false;
+    const currentMenuItem = menuItems.find(({ screens }) => screens.includes(state.screen));
+    const currentControls = [
+      [home, state.screen === 'log' && !state.date],
+      [calendar, state.screen === 'calendar'],
+      [exercises, state.screen === 'exercises' || state.screen === 'edit-exercise'],
+      ...menuItems.map(({ control }) => [control, control === currentMenuItem?.control]),
+    ];
+    for (const [control, current] of currentControls) {
+      if (current) control.setAttribute('aria-current', 'page');
+      else control.removeAttribute('aria-current');
     }
+    overflowToggle.toggleAttribute('data-current', Boolean(currentMenuItem));
     if (state.screen === 'log') app.append(renderLog());
     if (state.screen === 'calendar') app.append(renderCalendar());
     if (state.screen === 'plans') app.append(renderPlans());
@@ -165,6 +219,9 @@ export function mountJournal(root, adapter) {
       actions.append(select);
     }
     actions.append(button('+ Log set', () => openEntry(false), { className: 'primary', disabled: Boolean(issues.length) }));
+    if (!sessions.some((workout) => workout.sets.length)) {
+      actions.append(button('Follow a plan', () => state.active ? showActivePlan() : openPlans()));
+    }
     panel.append(actions);
     if (issues.length) {
       const details = el('details', { class: 'warning' }, el('summary', {}, `${issues.length} vault ${issues.length === 1 ? 'issue' : 'issues'}`));
@@ -172,7 +229,7 @@ export function mountJournal(root, adapter) {
       panel.append(details);
     }
 
-    const names = new Map(state.journal.exercises.map(({ id, name }) => [id, name]));
+    const exercises = new Map(state.journal.exercises.map((exercise) => [exercise.id, exercise]));
     const grouped = new Map();
     for (const set of session?.sets ?? []) {
       if (!grouped.has(set.exerciseId)) grouped.set(set.exerciseId, []);
@@ -181,14 +238,27 @@ export function mountJournal(root, adapter) {
     const log = el('div', { class: 'log-groups', 'aria-live': 'polite' });
     if (!grouped.size) log.append(el('p', { class: 'empty' }, 'No sets logged for this session.'));
     for (const [id, sets] of grouped) {
-      const name = names.get(id) ?? sets[0].exerciseName;
+      const exercise = exercises.get(id);
+      const name = exercise?.name ?? sets[0].exerciseName;
+      const progressLabel = `View progress for ${name}`;
+      const logLabel = `Log another set for ${name}`;
+      const logUnavailable = !exercise ? 'The exercise note is missing.' : exercise.archived ? 'The exercise is archived.'
+        : issues.length ? 'Resolve vault issues before logging a set.' : undefined;
+      const controls = el('div', { class: 'exercise-card-actions' },
+        button(lucideIcon(document, 'chart-line'), () => openProgress(id, session), {
+          className: 'exercise-card-action', label: progressLabel, title: progressLabel,
+        }),
+        button(lucideIcon(document, 'plus'), () => openEntry(false, id), {
+          className: 'exercise-card-action', label: logLabel, title: logUnavailable ?? logLabel, disabled: Boolean(logUnavailable),
+        }));
       const rows = sets.map((set, index) => el('li', { class: 'set-row' },
         el('span', { class: 'set-measurements' }, ...setValues(set).map((value) => el('span', {}, value))),
         button('Edit set', () => {
           state.setEditor = { session, set, name };
           view('edit-set');
         }, { className: 'text-button', label: `Edit set ${index + 1} for ${name}` })));
-      log.append(el('section', { class: 'exercise-card' }, el('h2', {}, name), el('ol', {}, ...rows)));
+      log.append(el('section', { class: 'exercise-card' },
+        el('header', { class: 'exercise-card-header' }, el('h2', {}, name), controls), el('ol', {}, ...rows)));
     }
     panel.append(log);
     panel.append(renderWorkoutNotes(session, day));
@@ -451,9 +521,10 @@ export function mountJournal(root, adapter) {
       form);
   }
 
-  async function openProgress(exerciseId = progress.exerciseId) {
+  async function openProgress(exerciseId = progress.exerciseId, workout = progress.workout) {
     const version = ++progressVersion;
     progress.exerciseId = exerciseId;
+    progress.workout = workout;
     progress.report = null;
     progress.error = '';
     view('progress');
@@ -470,7 +541,12 @@ export function mountJournal(root, adapter) {
   }
 
   function renderProgress() {
-    const page = el('section', { class: 'page' }, el('h1', {}, 'Progress'));
+    const workout = progress.workout;
+    const back = workout ? button('Back to workout', () => {
+      progress.workout = null;
+      goSession(workout);
+    }, { className: 'text-button' }) : undefined;
+    const page = el('section', { class: 'page' }, back, el('h1', {}, 'Progress'));
     if (progress.error) {
       page.append(el('p', { role: 'alert', class: 'warning' }, progress.error), button('Try again', () => openProgress()));
     } else if (!progress.report) {
@@ -508,11 +584,12 @@ export function mountJournal(root, adapter) {
     return page;
   }
 
-  function renderExercisePicker(exercises, picker, choose, tags, create) {
+  function renderExercisePicker(exercises, picker, choose, tags, create, suggestions = new Map()) {
     const search = el('input', { type: 'search', 'aria-label': 'Search exercises', placeholder: 'Search names and aliases' });
     search.value = picker.search;
     const list = el('div', { class: 'plan-list' });
     const results = el('p', { class: 'secondary', role: 'status' });
+    const rank = (exercise) => suggestions.get(exercise.id)?.rank ?? suggestions.size;
     function renderList() {
       const term = normalized(search.value);
       const visible = [];
@@ -524,11 +601,13 @@ export function mountJournal(root, adapter) {
           visible.push({ exercise, exact: names.includes(term) });
         }
       }
-      visible.sort((a, b) => Number(b.exact) - Number(a.exact));
+      visible.sort((a, b) => Number(b.exact) - Number(a.exact) || rank(a.exercise) - rank(b.exercise));
       results.textContent = visible.length ? `${visible.length} ${visible.length === 1 ? 'exercise' : 'exercises'}` : 'No matching exercises.';
       list.replaceChildren(...visible.map(({ exercise }) => {
-        const choice = button(exercise.name, () => choose(exercise, choice), { className: 'plan-option' });
-        const description = [exercise.starter ? 'Starter exercise' : '', exercise.archived ? 'Archived' : '',
+        const suggestion = suggestions.get(exercise.id);
+        const choice = button(el('span', {}, exercise.name), () => choose(exercise, choice), { className: 'plan-option' });
+        if (suggestion) choice.setAttribute('data-plan-status', suggestion.status);
+        const description = [suggestion?.label, exercise.starter ? 'Starter exercise' : '', exercise.archived ? 'Archived' : '',
           exercise.missingNote ? 'Exercise note missing' : '',
           ...exercise.aliases].filter(Boolean).join(' · ');
         if (description) choice.append(el('span', { class: 'secondary' }, description));
@@ -736,11 +815,12 @@ export function mountJournal(root, adapter) {
   function renderBanner() {
     const { plan, section } = state.active;
     const entry = activeExercise();
+    const current = plan.sections[section];
     return el('aside', { class: 'plan-banner', 'aria-label': 'Active plan' },
       el('div', {}, el('strong', {}, plan.title ?? state.active.title),
-        el('p', { class: 'secondary', 'aria-live': 'polite' }, entry ? `Up next · ${entry.name}` : plan.sections[section].name),
+        el('p', { class: 'secondary', 'aria-live': 'polite' }, entry ? `Up next · ${entry.name}` : `Active section · ${current.name}`),
         button('View plan', showActivePlan, { className: 'text-button' })),
-      button('Resume →', () => openEntry(true), { className: 'primary' }));
+      entry ? startExerciseButton(entry) : sectionDoneButton(current));
   }
 
   function openCalendar() {
@@ -858,6 +938,12 @@ export function mountJournal(root, adapter) {
     return state.active?.plan.sections[state.active.section]?.exercises[state.active.exercise];
   }
 
+  function startExerciseButton(exercise) {
+    return button('Start', () => openEntry(true), {
+      className: 'primary', label: `Start ${exercise.name}`, disabled: Boolean(state.journal.issues.length),
+    });
+  }
+
   function storageKey() { return `rep-journal:active-plan:${state.journal.vaultKey}`; }
 
   function rememberPlan() {
@@ -895,6 +981,25 @@ export function mountJournal(root, adapter) {
     render();
   }
 
+  function stopPlan() {
+    state.active = null;
+    rememberPlan();
+    goToday();
+  }
+
+  function sectionDoneButton(section) {
+    return button('Done', () => {
+      const next = state.active.section + 1;
+      if (next === state.active.plan.sections.length) {
+        stopPlan();
+        app.querySelector('.log-actions .primary')?.focus();
+        return;
+      }
+      movePlan(next);
+      app.querySelector('.current-section h2, .plan-banner > button')?.focus();
+    }, { className: 'plan-done', label: `Done with ${section.name}` });
+  }
+
   function renderPlan() {
     const { result, title, path, error } = state.review;
     const active = state.active?.path === path;
@@ -914,31 +1019,41 @@ export function mountJournal(root, adapter) {
     }
     for (const [index, section] of plan.sections.entries()) {
       const current = active && index === state.active.section;
-      const box = el('section', { class: current ? 'plan-section current-section' : 'plan-section' },
-        el('div', { class: 'section-heading' }, el('h2', {}, section.name),
+      const box = el('section', {
+        class: current ? 'plan-section current-section' : 'plan-section', 'aria-current': current ? 'step' : undefined,
+      }, current ? el('p', { class: 'active-section-label' }, 'Active section') : undefined,
+        el('div', { class: 'section-heading' }, el('h2', { tabindex: current ? -1 : undefined }, section.name),
           section.superset ? el('span', { class: 'secondary' }, 'Superset') : undefined), notes(section.notes));
       for (const [exerciseIndex, exercise] of section.exercises.entries()) {
         const selected = current && exerciseIndex === state.active.exercise;
         const choice = current ? button(exercise.name, () => movePlan(index, exerciseIndex), { className: 'exercise-choice' }) : el('h3', {}, exercise.name);
-        if (current) choice.setAttribute('aria-pressed', String(selected));
-        box.append(el('div', { class: 'plan-exercise' }, choice, notes(exercise.notes)));
+        if (current) {
+          choice.setAttribute('aria-pressed', String(selected));
+          choice.setAttribute('data-plan-status', selected ? 'next' : 'planned');
+        }
+        box.append(el('div', { class: 'plan-exercise' },
+          el('div', { class: 'plan-exercise-heading' }, choice, selected ? startExerciseButton(exercise) : undefined),
+          notes(exercise.notes)));
       }
+      if (current) box.append(sectionDoneButton(section));
       page.append(box);
     }
     page.append(el('div', { class: 'plan-controls' },
-      active ? button('Resume plan →', () => openEntry(true), { className: 'primary', disabled: !activeExercise() })
-        : button('Start plan', startPlan, { className: 'primary' }),
-      active ? button('Stop plan', () => { state.active = null; rememberPlan(); goToday(); }) : undefined));
+      active ? button('Stop plan', stopPlan)
+        : button('Start plan', startPlan, { className: 'primary' })));
     return page;
   }
 
-  function openEntry(planned) {
-    const exerciseId = planned ? activeExercise()?.exerciseId : undefined;
+  function openEntry(planned, exerciseId = planned ? activeExercise()?.exerciseId : undefined) {
     if (planned && !exerciseId) { showActivePlan(); return; }
     if (planned && state.date) goToday();
     state.entry = { exerciseId, setId: adapter.makeSetId(), planned, unit: state.journal.unit, date: workoutDate(),
       selectedDate: Boolean(state.date), workoutId: selectedWorkout()?.id ?? null, picker: { search: '', tags: new Set() } };
     view('entry');
+    if (exerciseId) {
+      const inputs = [...app.querySelectorAll('.entry-fields input:not(:disabled):not([readonly])')];
+      (inputs.find((input) => input.value === '') ?? inputs[0])?.focus();
+    }
   }
 
   function selectEntryExercise(exerciseId) {
@@ -963,6 +1078,17 @@ export function mountJournal(root, adapter) {
         return page;
       }
       const options = [...exercises, ...state.journal.starters];
+      const suggestions = new Map();
+      const next = activeExercise() ?? state.active?.plan.sections.slice(state.active.section + 1)
+        .find(({ exercises }) => exercises.length)?.exercises[0];
+      if (next) suggestions.set(next.exerciseId, { rank: 0, label: 'Up next', status: 'next' });
+      for (const section of state.active?.plan.sections ?? []) {
+        for (const { exerciseId } of section.exercises) {
+          if (!suggestions.has(exerciseId)) {
+            suggestions.set(exerciseId, { rank: suggestions.size, label: 'In active plan', status: 'planned' });
+          }
+        }
+      }
       const tags = [...new Map(options.flatMap(({ tags }) => tags.map((tag) => [tagKey(tag), tag]))).values()]
         .sort((a, b) => a.name.localeCompare(b.name));
       const choose = (option, control) => {
@@ -977,7 +1103,8 @@ export function mountJournal(root, adapter) {
         event.preventDefault();
         form.querySelector('button.plan-option')?.click();
       });
-      form.append(error, renderExercisePicker(options, entry.picker, choose, tags, (name) => openExerciseEditor(null, 'entry', name)));
+      form.append(error, renderExercisePicker(options, entry.picker, choose, tags,
+        (name) => openExerciseEditor(null, 'entry', name), suggestions));
       page.append(form);
       return page;
     }
@@ -1078,7 +1205,7 @@ export function mountJournal(root, adapter) {
     },
     async openProgress(exerciseId) {
       await ready;
-      if (mounted && state.journal) await openProgress(exerciseId);
+      if (mounted && state.journal) await openProgress(exerciseId, null);
     },
     async openExport() {
       await ready;
@@ -1098,6 +1225,7 @@ export function mountJournal(root, adapter) {
     dispose() {
       mounted = false;
       disposeStrengthChart?.();
+      menuResize.disconnect();
       root.replaceChildren();
       root.classList.remove('rep-journal-modern');
     },
