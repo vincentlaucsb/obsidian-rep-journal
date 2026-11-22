@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22.x
+          cache: npm
+
+      - name: Verify release version
+        run: |
+          node <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
+          const tag = process.env.RELEASE_TAG;
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag ?? '')) {
+            throw new Error('Release tag must be x.y.z, without a v prefix.');
+          }
+          const manifest = read('manifest.json');
+          const lockfile = read('package-lock.json');
+          if ([manifest.version, read('package.json').version, lockfile.version, lockfile.packages[''].version]
+            .some((version) => version !== tag)) {
+            throw new Error('Manifest, package, and lockfile versions must match the release tag.');
+          }
+          if (read('versions.json')[tag] !== manifest.minAppVersion) {
+            throw new Error('versions.json must match the release minimum app version.');
+          }
+          NODE
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      - name: Build
+        run: npm run build
+
+      - name: Verify Obsidian assets
+        run: |
+          for asset in main.js manifest.json styles.css; do
+            test -s "$asset" || { echo "Missing or empty asset: $asset"; exit 1; }
+          done
+
+      - name: Attest the release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          create-storage-record: false
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$RELEASE_TAG" main.js manifest.json styles.css \
+            --verify-tag --title "Rep Journal v$RELEASE_TAG" --notes-from-tag
