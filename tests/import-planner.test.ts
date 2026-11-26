@@ -84,7 +84,8 @@ void test('explicit exercise declarations are reproducible after partial writes 
   assert.equal(first.exercises.length, 1);
   const [exercise] = first.exercises;
   assert.deepEqual(exercise.measurements, ['weight', 'distance']);
-  assert.equal(exercise.distanceUnit, 'yd');
+  assert.equal(exercise.distanceUnit, undefined);
+  assert.deepEqual(first.workouts[0].sets[0].distance, { value: 30, unit: 'yd' });
   assert.equal(exercise.unit, 'kg');
   assert.equal(first.workouts[0].sets[0].exerciseId, exercise.id);
   const resumed = await planWorkoutImport(input, { ...empty, exercises: [{ ...exercise, path: 'Exercises/Sled.md' }] });

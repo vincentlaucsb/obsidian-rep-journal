@@ -16,3 +16,11 @@ loopback. The test logs a set through the workout log, checks the saved vault fi
 and reopens the set after reloading Obsidian. Failures write diagnostics to
 `test-results/`. GitHub Actions runs the same command on Windows for pull requests
 and pushes to `master`.
+
+## Persistent development vault
+
+Open the local `dev-vault/` Git repository as a vault in Obsidian, or run `npm run standalone -- --vault dev-vault`. It contains synthetic workouts for manual testing. The vault tracks its own test data and plans. Its generated plugin files are ignored by Git.
+
+Run `npm run dev` during active development. Successful rebuilds update `main.js`, `manifest.json`, and `styles.css` in `dev-vault/.obsidian/plugins/rep-journal/`. Stylesheet and manifest edits also trigger a rebuild. For a one-off update, run `npm run build`. Reload Rep Journal in Obsidian to activate updated JavaScript.
+
+The copy runs when the test vault's plugin directory exists. If setting up another checkout, place a copy of the test vault at `dev-vault/`, create that plugin directory, and build once.

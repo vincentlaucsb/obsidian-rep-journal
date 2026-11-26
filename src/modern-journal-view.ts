@@ -1,6 +1,7 @@
 import { Component, ItemView, Keymap, MarkdownRenderer, Notice, type TFile, type WorkspaceLeaf } from 'obsidian';
 import { mountJournal, type JournalAdapter, type MountedJournal } from '../standalone/app.ts';
-import { errorMessage, type WeightUnit } from './model.ts';
+import { errorMessage } from './model.ts';
+import type { MeasurementSystem } from './units.ts';
 
 export const MODERN_JOURNAL_VIEW = 'rep-journal-today';
 export type JournalScreen = 'today' | 'progress' | 'export';
@@ -92,7 +93,7 @@ export class ModernJournalView extends ItemView {
     await this.journal?.refreshVaultNotes();
   }
 
-  setWeightUnit(unit: WeightUnit): void { this.journal?.setWeightUnit(unit); }
+  setMeasurementSystem(system: MeasurementSystem): void { this.journal?.setMeasurementSystem(system); }
 
   async refresh(): Promise<void> {
     await this.reload(true);

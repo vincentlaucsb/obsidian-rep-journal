@@ -159,7 +159,7 @@ void test('the native workout log uses the vault repository without writing on s
   const { selected, sessions, unit } = await adapter.readProgress(bench.id);
   assert.deepEqual(selected?.aliases, ['Bench']);
   assert.equal(unit, 'lb');
-  assert.deepEqual(sessions.map(({ id, sets }) => ({ id, sets })), [{ id: first.workout.id, sets: ['8 reps · 45 kg'] }]);
+  assert.deepEqual(sessions.map(({ id, sets }) => ({ id, sets })), [{ id: first.workout.id, sets: ['8 reps · 99.21 lb'] }]);
   assert.ok((sessions[0].estimatedMax ?? 0) > 125);
   const data = await repository.read();
   assert.equal(await vault.adapter.read(await adapter.saveExport('csv')), toCsv(data));

@@ -2,6 +2,8 @@
 
 The vault contains the source data. `Exercises`, `Workouts`, and `Exports` live under the journal folder, which defaults to `Rep Journal`. Set **Journal folder** in the Obsidian plugin settings or create `.rep-journal.json` at the vault root with a JSON object such as `{"journalFolder":"Training/Rep Journal"}`. The Obsidian plugin, standalone app, and importer all use this setting. Use the same setting on each device.
 
+The optional `measurementSystem` setting in the same file accepts `imperial` (lb, mi, ft) or `metric` (kg, km, m). Imperial is the default. An existing Obsidian preference for kilograms or a standalone launch with `--unit kg` selects Metric until you save a shared system. Changes affect new set entry, history display, and estimated 1RM.
+
 ## Exercise notes
 
 | Property | Value |
@@ -11,12 +13,13 @@ The vault contains the source data. `Exercises`, `Workouts`, and `Exports` live 
 | `exercise_name` | Display name |
 | `aliases` | Search names for the same exercise. Changing the display name in the plugin saves the previous name as an alias. |
 | `exercise_measurements` | Nonempty list containing any of `weight`, `reps`, `time`, `distance`, and `elevationGain`. |
-| `distance_unit` | Preferred distance entry and display unit, one of `m`, `km`, `mi`, `yd`, or `ft`. |
-| `elevation_unit` | Preferred elevation gain entry and display unit, either `m` or `ft`. |
+| `distance_unit` | Optional distance entry and display override, one of `m`, `km`, `mi`, `yd`, or `ft`. |
+| `elevation_unit` | Optional elevation gain entry and display override, either `m` or `ft`. |
 | `exercise_tags` | List of grouped labels such as `region/Upper Body`, `role/Main`, `muscles/Shoulders`, `activity/Strength`, `movement/Push`, and `custom/Home`. |
 | `equipment` | Legacy text from older notes. Equipment distinctions in new notes can go in the display name, as in `Dumbbell Curl`. |
 | `load_mode` | Legacy load setting. Existing `added` and `assistance` exercises keep their load semantics. Notes without `exercise_measurements` default to reps for `bodyweight` or weight and reps for other modes. |
-| `weight_unit` | Legacy exercise-level unit. Rep Journal settings supply the preferred unit for new sets. |
+| `weight_unit` | Legacy exercise metadata, retained for compatibility. |
+| `weight_unit_override` | Optional weight entry, display, and 1RM override, either `lb` or `kg`. |
 | `archived` | Boolean. Archived exercises remain available in Progress. |
 
 The note body can hold user notes and links. Keep the ID when changing the name or moving the file within the `Exercises` folder. Starter exercise notes are created when you choose them with **Log set**. Tags filter the pickers and work independently of set measurements and estimated 1RM.
@@ -43,12 +46,12 @@ The `warmup` flag remains in saved files and exports for compatibility. New sets
 
 Workout files that use only the original reps and load shape retain schema version `1`. Adding time, distance, elevation gain, or a set without both reps and load advances that file to schema version `2`. Version `2` can contain both old and new set shapes. Editing a recorded measurement uses its original unit and precision. Enable **Elevation gain** on an exercise to add it when logging a set or editing a set with no elevation recorded. Clear the field in the set editor to remove the measurement.
 
-The log, last session, and Progress display distance in the exercise's preferred unit to two decimal places at most, and elevation gain to whole units when a preferred unit is set. With no exercise preference, the journal displays the recorded value and unit. New entries default to meters when a preference is absent.
+The log, last session, and Progress use exercise unit overrides when present and journal defaults otherwise. Converted weight and displayed distance use up to two decimal places. Elevation gain displays whole units. Choose **Use journal default** in the exercise editor to clear an override. Imports preserve set units and create exercise overrides only when specified by the declaration or starter exercise.
 
 ## Analytics and exports
 
 - Rep Journal updates `Exports/rep-journal.csv` in the active journal folder in the background. It refreshes when you open or refresh the journal, add, edit, or delete a set, or save an exercise definition. Manual exports create dated copies. If source records cannot be read, the last complete export stays in place. The journal reports any export error. To retry, run **Refresh workout log** from Obsidian’s command palette or select **Refresh automatic CSV** in the standalone app’s Export view.
-- Exercise history and workout context use the best estimate per session from sets of 1–10 reps with a positive external weight. Weighted singles use their recorded load. For 2–10 reps, estimates use `weight × (1 + reps / 30)` after converting to the app's weight unit.
+- Exercise history and workout context use the best estimate per session from sets of 1–10 reps with a positive external weight. Weighted singles use their recorded load. For 2–10 reps, estimates use `weight × (1 + reps / 30)` after converting to the exercise's weight override or the journal default.
 - CSV uses one row per set, ordered by session and set order. Optional measurements have empty cells when absent. After `duration_seconds`, `distance_value`, and `distance_unit`, CSV includes `elevation_gain_value` and `elevation_gain_unit`. All measurements use their recorded values and units. Exercise names resolve to the current exercise when available, with the set's recorded name as a fallback. Values that could be interpreted as spreadsheet formulas are escaped. Use JSON for exact text.
 - JSON contains the exercise properties and workout records with IDs, units, and workout notes. The export schema is `2` and includes the original version for each workout record. The Markdown body of an exercise note lives in the vault. Keep the vault files for a complete backup of those notes.
 - Workout context includes selected dates, all logged sets on those dates, and exercise summaries. Workout notes are opt-in. Copying contextualizes the selected data for an LLM you use separately.

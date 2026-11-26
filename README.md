@@ -10,7 +10,7 @@ With Node 22.18 or later, run `npm ci` and use your existing vault folder.
 npm run standalone -- --vault "path/to/vault"
 ```
 
-Open [Rep Journal](http://127.0.0.1:4317) in a browser on the same computer. Use `--unit kg` for kilograms or `--port 4320` for a different port.
+Open [Rep Journal](http://127.0.0.1:4317) in a browser on the same computer. Use `--port 4320` for a different port. The legacy `--unit kg` flag selects Metric when the vault has no saved measurement system.
 
 **Today** groups logged sets by exercise. Select **Rep Journal** in the pinned header to return to Today. Use the arrows to step through sessions or open **Calendar** to choose a date. You can log sets and notes on an earlier date, including a day with no existing workout. When a date already has a session, choose **New workout** in the session picker to start another one.
 
@@ -41,6 +41,8 @@ Choose **Menu → Plans** to review and start a plan. Use **Start** on the plan 
 Use the [command-line JSON importer](docs/IMPORT.md) to bring in workouts from FitNotes or another tracker. The importer validates the file and reports errors in JSON so an LLM can help correct them.
 
 ## Data and sync
+
+Choose **Measurement system** in **Obsidian Settings → Rep Journal** or **Menu → Settings** in the standalone app. The two hosts share the saved setting. **Imperial** uses pounds, miles, and feet, and **Metric** uses kilograms, kilometers, and meters. The setting controls new entries and history display. In an exercise editor, choose a specific unit for weight, distance, or elevation gain, or select **Use journal default**. For example, Rowing uses meters by default. Existing sets keep the value and unit originally recorded. The set editor shows those original units, and CSV and JSON exports preserve them.
 
 The plugin, standalone app, and importer use the same journal folder. It defaults to `Rep Journal`. To use a different folder, set **Journal folder** in **Settings → Rep Journal** or edit `.rep-journal.json` at the vault root. Use a vault-relative path such as `Training/Rep Journal`. After editing the file directly, reload the Obsidian plugin. After any folder change, restart the standalone server and reload its browser tab.
 

@@ -54,6 +54,7 @@ function describeExercise(exercise: ExerciseChoice) {
     name: exercise.name,
     aliases: exercise.aliases,
     measurements: exercise.measurements,
+    weightUnit: exercise.measurements.includes('weight') ? exercise.weightUnit : undefined,
     distanceUnit: exercise.measurements.includes('distance') ? exercise.distanceUnit : undefined,
     elevationUnit: exercise.measurements.includes('elevationGain') ? exercise.elevationUnit : undefined,
     archived: exercise.archived || undefined,

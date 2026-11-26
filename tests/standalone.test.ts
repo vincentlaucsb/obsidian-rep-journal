@@ -197,7 +197,7 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.equal((await edit('exercises', exerciseEdit, 'https://example.com')).status, 403);
   const archivedResponse = await edit('exercises', exerciseEdit);
   assert.equal(archivedResponse.status, 200);
-  const archived = await archivedResponse.json() as { id: string; aliases: string[]; archived: boolean };
+  const archived = await archivedResponse.json() as { id: string; aliases: string[]; archived: boolean; distanceUnit?: string };
   assert.equal(archived.id, exerciseId);
   assert.equal(archived.archived, true);
   assert.deepEqual(archived.aliases, ['Bench', 'Bench Press']);
@@ -205,7 +205,11 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.match(exerciseText, /^custom: Keep me$/m);
   assert.ok(exerciseText.endsWith('\n\n## Form cue\nKeep the note body.\n'));
   assert.equal((await edit('exercises', exerciseEdit)).status, 400);
-  assert.equal((await edit('exercises', { exerciseId, original: archived, values: { ...values, archived: false } })).status, 200);
+  assert.equal((await edit('exercises', { exerciseId, original: archived, values: { ...values, archived: false, distanceUnit: null } })).status, 200);
+  const reloadedExercise = (await readImportVault(root, journalFolder)).data.exercises.find(({ id }) => id === exerciseId);
+  assert.ok(reloadedExercise);
+  assert.equal(reloadedExercise.distanceUnit, undefined);
+  assert.doesNotMatch(await readFile(join(root, journalFolder, 'Exercises', 'Bench Press.md'), 'utf8'), /^distance_unit:/m);
   const press = { exerciseId: makeId(), original: null, values: { ...values, name: 'Overhead Press', aliases: [], archived: false } };
   assert.equal((await edit('exercises', press)).status, 200);
   assert.equal((await edit('exercises', press)).status, 200);
@@ -298,11 +302,11 @@ void test('standalone progress and export use the active journal and preserve th
   assert.equal(report.unit, 'kg');
   assert.deepEqual(report.sessions.map(({ id, number, sets }) => ({ id, number, sets })), [
     { id: later.id, number: 2, sets: ['5 reps · 50 kg', '6 reps'] },
-    { id: early.id, number: 1, sets: ['8 reps · 88 lb'] },
+    { id: early.id, number: 1, sets: ['8 reps · 39.92 kg'] },
   ]);
   assert.equal(report.sessions[0].estimatedMax, 50 * (1 + 5 / 30));
   assert.deepEqual(report.trend.map(({ sessionId, date, number, set }) => ({ sessionId, date, number, set })), [
-    { sessionId: early.id, date, number: 1, set: '8 reps · 88 lb' },
+    { sessionId: early.id, date, number: 1, set: '8 reps · 39.92 kg' },
     { sessionId: later.id, date, number: 2, set: '5 reps · 50 kg' },
   ]);
   assert.equal(report.trend[0].value, report.sessions[1].estimatedMax);
@@ -313,12 +317,33 @@ void test('standalone progress and export use the active journal and preserve th
   };
   assert.equal(missing.selected.name, 'Historic carry');
   assert.equal(missing.selected.missingNote, true);
-  assert.deepEqual(missing.sessions[0].sets, ['20 yd']);
+  assert.deepEqual(missing.sessions[0].sets, ['0.02 km']);
   assert.deepEqual(missing.trend, []);
 
   const post = (route: string, body: unknown, source = origin) => fetch(`${origin}/api/${route}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: source }, body: JSON.stringify(body),
   });
+  assert.equal((await post('settings', { measurementSystem: 'imperial' }, 'https://example.com')).status, 403);
+  assert.equal((await post('settings', { measurementSystem: 'inches' })).status, 400);
+  const lock = join(root, `${journalSettingsFile}.lock`);
+  await writeFile(lock, '');
+  const busy = await post('settings', { measurementSystem: 'imperial' });
+  assert.equal(busy.status, 400);
+  assert.deepEqual(await busy.json(), { error: 'Journal settings are being saved. If the error persists after closing Obsidian and stopping the standalone server, remove .rep-journal.json.lock at the vault root and try again.' });
+  assert.deepEqual(JSON.parse(await readFile(join(root, journalSettingsFile), 'utf8')), { journalFolder: 'Set Ledger' });
+  await rm(lock);
+  assert.equal((await post('settings', { measurementSystem: 'imperial' })).status, 200);
+  assert.deepEqual(JSON.parse(await readFile(join(root, journalSettingsFile), 'utf8')), {
+    journalFolder: 'Set Ledger', measurementSystem: 'imperial',
+  });
+  const imperial = await (await fetch(`${origin}/api/progress?exercise=${exerciseId}`)).json() as typeof report;
+  assert.equal(imperial.unit, 'lb');
+  assert.deepEqual(imperial.sessions[1].sets, ['8 reps · 88 lb']);
+  assert.equal(await readFile(earlyPath, 'utf8'), JSON.stringify(early));
+  assert.equal(await readFile(laterPath, 'utf8'), JSON.stringify(later));
+  assert.equal(await readFile(csvPath, 'utf8'), toCsv(originalData));
+  assert.equal((await post('settings', { measurementSystem: 'metric' })).status, 200);
+
   assert.equal((await post('exports', { format: 'csv' }, 'https://example.com')).status, 403);
   assert.equal((await post('exports', { format: '../workouts/escape.json' })).status, 400);
   for (const [format, text] of [['csv', toCsv(originalData)], ['json', toJson(originalData)]] as const) {

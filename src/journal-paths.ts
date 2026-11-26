@@ -1,5 +1,7 @@
 import { isId, isRecord, type Exercise } from './model.ts';
 
+import { isMeasurementSystem, type MeasurementSystem } from './units.ts';
+
 export const journalFolder = 'Rep Journal';
 export const journalSettingsFile = '.rep-journal.json';
 
@@ -14,13 +16,22 @@ export function normalizeJournalFolder(value: string): string {
   return path;
 }
 
-export function parseJournalFolder(text: string): string {
+export function parseJournalSettings(text: string): Record<string, unknown> {
   const settings: unknown = JSON.parse(text);
   if (!isRecord(settings)) throw new Error('Expected a journal settings object.');
-  const value = settings.journalFolder;
+  return settings;
+}
+
+export function parseJournalFolder(text: string): string {
+  const value = parseJournalSettings(text).journalFolder;
   if (value === undefined) return journalFolder;
   if (typeof value !== 'string') throw new Error('The journal folder setting must be a string.');
   return normalizeJournalFolder(value);
+}
+
+export function readMeasurementSystem(settings: Record<string, unknown>, fallback: MeasurementSystem): MeasurementSystem {
+  const value = settings.measurementSystem;
+  return isMeasurementSystem(value) ? value : fallback;
 }
 
 export function exerciseFilename(exercise: Pick<Exercise, 'name'>, number = 1): string {

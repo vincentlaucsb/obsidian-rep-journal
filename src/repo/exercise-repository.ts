@@ -3,7 +3,7 @@ import { readCatalogExercise } from '../catalog.ts';
 import { appendExerciseGuides } from '../exercise-guides.ts';
 import { exerciseFilename, hasLegacyExerciseFilename } from '../journal-paths.ts';
 import {
-  combineAliases, errorMessage, exerciseFrontmatter, isRecord, makeId, nameKey, readExercise,
+  combineAliases, errorMessage, exerciseFrontmatter, exerciseUnitFields, isRecord, makeId, nameKey, readExercise,
   type Exercise, type ExerciseDetails, type ExerciseNote,
 } from '../model.ts';
 import { ensureFolder, isRecordPath, readRecords, uniqueRecords, type LedgerVault } from './vault-records.ts';
@@ -63,7 +63,9 @@ export class ExerciseRepository {
       if (!info.exists || !isRecord(current) || JSON.stringify(readCatalogExercise(current)) !== JSON.stringify(before)) {
         throw new Error('The exercise changed. Refresh and try again.');
       }
-      const yaml = stringifyYaml({ ...current, ...properties }).trimEnd();
+      const updated = { ...current, ...properties };
+      for (const key of exerciseUnitFields) if (!(key in properties)) delete updated[key];
+      const yaml = stringifyYaml(updated).trimEnd();
       return `${text.slice(0, info.from)}${yaml}\n${text.slice(info.to)}`;
     });
     return { ...exercise, path: file.path };

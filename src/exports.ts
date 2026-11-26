@@ -94,7 +94,7 @@ function exerciseFor(id: string, exercises: ReadonlyMap<string, ExerciseNote>, s
   return exercises.get(id)?.name ?? sets.find((set) => set.exerciseId === id)?.exerciseName ?? id;
 }
 
-export function workoutContext(data: LedgerData, options: ContextOptions, unit: WeightUnit = 'lb'): string {
+export function workoutContext(data: LedgerData, options: ContextOptions, journalUnit: WeightUnit = 'lb'): string {
   requireCompleteData(data);
   const workouts = data.workouts.map(({ workout }) => workout)
     .filter((workout) => workout.date >= options.from && workout.date <= options.to);
@@ -104,6 +104,7 @@ export function workoutContext(data: LedgerData, options: ContextOptions, unit: 
   const exerciseSummaries = ids.map((id) => {
     const history = exerciseHistory(workouts, id);
     const exercise = exercises.get(id);
+    const unit = exercise?.weightUnit ?? journalUnit;
     const estimates = strengthTrend(history, unit);
     const last = history[0];
     const latestEstimate = estimates[estimates.length - 1];

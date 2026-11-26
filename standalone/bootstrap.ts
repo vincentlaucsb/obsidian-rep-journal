@@ -22,6 +22,7 @@ function post<T>(path: string, input: unknown): Promise<T> {
 
 mountJournal(root, {
   loadJournal: () => request('/api/journal'),
+  saveMeasurementSystem: async (measurementSystem) => { await post('/api/settings', { measurementSystem }); },
   enablePopover: async () => {
     const { apply, isSupported } = await import('/popover-fn.js');
     if (!isSupported()) apply();

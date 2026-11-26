@@ -10,11 +10,12 @@ import {
 } from './import-vault.ts';
 import { isWorkoutPlanPath, maxPlanBytes, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit, readLogSetInput, type PlanNote } from '../src/journal-workflow.ts';
 import {
-  changeWorkout, createWorkout, errorMessage, exerciseFrontmatter, parseWorkout, type Exercise, type ExerciseNote, type LedgerData,
+  changeWorkout, createWorkout, errorMessage, exerciseFrontmatter, exerciseUnitFields, parseWorkout, type Exercise, type ExerciseNote, type LedgerData,
   type WeightUnit, type WorkoutChange, type WorkoutFile,
 } from '../src/model.ts';
 import { isPlanYear, type DatedPlanNote, type DatedPlanRepository, type PlanPickerRepository } from '../src/repo/plan-repository.ts';
 import { diskFileRevision, ledgerWithCommittedWorkout, type RecordRevisions } from '../src/repo/workout-snapshot.ts';
+import type { MeasurementSystem } from '../src/units.ts';
 import { parseWorkoutPlan } from '../src/workout-plan.ts';
 
 export interface StandaloneVault {
@@ -176,19 +177,19 @@ async function writeWorkoutChange(
 }
 
 export function saveStandaloneSet(
-  store: StandaloneVault, input: unknown, today: string, unit: WeightUnit, reportAutomaticCsv: ReportAutomaticCsvError,
+  store: StandaloneVault, input: unknown, today: string, unit: WeightUnit, reportAutomaticCsv: ReportAutomaticCsvError, system?: MeasurementSystem,
 ): Promise<WorkoutFile> {
   const request = readLogSetInput(input, today);
   return withVaultEdit(store, reportAutomaticCsv, (vault) => {
-    const prepared = prepareLogSet(vault.data, request, unit);
+    const prepared = prepareLogSet(vault.data, request, unit, system);
     if ('replay' in prepared) return Promise.resolve(prepared.replay);
     return writeWorkoutChange(vault, request.date, { kind: 'add', set: prepared.set }, prepared.original);
   }, true);
 }
 
-export function editStandaloneWorkout(store: StandaloneVault, input: unknown, today: string, reportAutomaticCsv: ReportAutomaticCsvError): Promise<WorkoutFile> {
+export function editStandaloneWorkout(store: StandaloneVault, input: unknown, today: string, reportAutomaticCsv: ReportAutomaticCsvError, system?: MeasurementSystem): Promise<WorkoutFile> {
   return withVaultEdit(store, reportAutomaticCsv, (vault) => {
-    const prepared = prepareWorkoutEdit(vault.data, input, today);
+    const prepared = prepareWorkoutEdit(vault.data, input, today, system);
     if ('replay' in prepared) return Promise.resolve(prepared.replay);
     return writeWorkoutChange(vault, prepared.date, prepared.change, prepared.original, prepared.newWorkoutId);
   }, true);
@@ -224,7 +225,9 @@ export function editStandaloneExercise(store: StandaloneVault, input: unknown, u
     if (yaml.errors.length || JSON.stringify(readCatalogExercise(yaml.toJS() as unknown)) !== JSON.stringify(before)) {
       throw new Error('The exercise changed. Refresh and try again.');
     }
-    for (const [key, value] of Object.entries(exerciseFrontmatter(exercise))) yaml.set(key, value);
+    const properties = exerciseFrontmatter(exercise);
+    for (const [key, value] of Object.entries(properties)) yaml.set(key, value);
+    for (const key of exerciseUnitFields) if (!(key in properties)) yaml.delete(key);
     const openingEnd = head[0].indexOf('\n') + 1;
     const closingStart = head[0].lastIndexOf('\n') + 1;
     const frontmatter = head[0].includes('\r\n') ? yaml.toString().replace(/\n/g, '\r\n') : yaml.toString();

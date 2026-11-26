@@ -11,6 +11,7 @@ import { localDate, makeId, type WeightUnit } from './model.ts';
 import { DatedPlanRepository, isPlanYear, PlanPickerRepository } from './repo/plan-repository.ts';
 import { diskFileRevision, type StatDiskFile } from './repo/workout-snapshot.ts';
 import type { LedgerRepository } from './repository.ts';
+import { defaultMeasurementSystem, journalWeightUnit, type MeasurementSystem } from './units.ts';
 import { parseWorkoutPlan } from './workout-plan.ts';
 
 type JournalVault = Pick<Vault, 'getMarkdownFiles' | 'getFolderByPath' | 'getFileByPath' | 'cachedRead'> & {
@@ -26,10 +27,12 @@ export function createObsidianJournalAdapter(
     vaultKey: string;
     statFile?: StatDiskFile;
     weightUnit: () => WeightUnit;
+    measurementSystem?: () => Promise<MeasurementSystem>;
     reportExportError: (error: unknown) => void;
     openExerciseNote: NonNullable<JournalAdapter['openExerciseNote']>;
   },
 ): JournalAdapter {
+  const measurementSystem = options.measurementSystem ?? (() => Promise.resolve(defaultMeasurementSystem(options.weightUnit())));
   let writes: Promise<unknown> = Promise.resolve();
   const plans = new DatedPlanRepository(repository.root);
   const planPicker = new PlanPickerRepository(repository.root);
@@ -63,7 +66,8 @@ export function createObsidianJournalAdapter(
         const file = vault.getFileByPath(path);
         if (file && file.stat.size <= maxPlanBytes) return vault.cachedRead(file);
       });
-      return { ...data, datedPlans, starters: workoutStarters(data), today: localDate(), unit: options.weightUnit(), vaultKey: options.vaultKey };
+      const system = await measurementSystem();
+      return { ...data, datedPlans, starters: workoutStarters(data), today: localDate(), unit: journalWeightUnit(system), measurementSystem: system, vaultKey: options.vaultKey };
     },
     async enablePopover() {
       if (!isSupported()) apply();
@@ -93,7 +97,7 @@ export function createObsidianJournalAdapter(
       return write(async () => {
         const request = readLogSetInput(input, localDate());
         const snapshot = await repository.readWorkoutSnapshot();
-        const prepared = prepareLogSet(snapshot.data, request, unit);
+        const prepared = prepareLogSet(snapshot.data, request, unit, request.units ? undefined : options.measurementSystem ? await measurementSystem() : defaultMeasurementSystem(unit));
         if ('replay' in prepared) return prepared.replay;
         const saved = await repository.saveWorkout(request.date, { kind: 'add', set: prepared.set }, prepared.original);
         void updateAutomaticCsv({ snapshot, saved });
@@ -103,7 +107,7 @@ export function createObsidianJournalAdapter(
     editWorkout(input) {
       return write(async () => {
         const snapshot = await repository.readWorkoutSnapshot();
-        const prepared = prepareWorkoutEdit(snapshot.data, input, localDate());
+        const prepared = prepareWorkoutEdit(snapshot.data, input, localDate(), await measurementSystem());
         if ('replay' in prepared) return prepared.replay;
         const saved = await repository.saveWorkout(prepared.date, prepared.change, prepared.original, prepared.newWorkoutId);
         void updateAutomaticCsv({ snapshot, saved });
@@ -129,7 +133,8 @@ export function createObsidianJournalAdapter(
       });
     },
     async readProgress(exerciseId) {
-      return exerciseProgress(await repository.read(), exerciseId, options.weightUnit());
+      const system = await measurementSystem();
+      return exerciseProgress(await repository.read(), exerciseId, journalWeightUnit(system), system);
     },
     saveExport(format) {
       return write(async () => repository.writeExport(format, serializeExport(await repository.read(), format)));
@@ -137,7 +142,7 @@ export function createObsidianJournalAdapter(
     refreshAutomaticCsv: () => repository.refreshAutomaticCsv(),
     async prepareContext(input) {
       const context = readContextOptions(input);
-      return workoutContext(await repository.read(), context, options.weightUnit());
+      return workoutContext(await repository.read(), context, journalWeightUnit(await measurementSystem()));
     },
     openExerciseNote: options.openExerciseNote,
   };

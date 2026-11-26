@@ -31,12 +31,11 @@ type DraftSet = Omit<WorkoutSet, 'id'> & { id?: string };
 interface DraftExercise {
   exercise: Exercise;
   measurementsSpecified: boolean;
-  distanceUnitSpecified: boolean;
 }
 
 const measurementKeys = Object.keys(measurements) as Measurement[];
 const rootFields = ['schemaVersion', 'exercises', 'workouts'];
-const exerciseFields = ['name', 'id', 'aliases', 'measurements', 'distanceUnit', 'elevationUnit'];
+const exerciseFields = ['name', 'id', 'aliases', 'measurements', 'weightUnit', 'distanceUnit', 'elevationUnit'];
 const workoutFields = ['schemaVersion', 'id', 'date', 'createdAt', 'notes', 'sets'];
 const setFields = ['id', 'exerciseId', 'exerciseName', 'reps', 'load', 'durationSeconds', 'distance', 'elevationGain', 'warmup'];
 
@@ -166,6 +165,11 @@ async function readExerciseDeclarations(
     const requestedId = readId(declaration.id, `${path}.id`, issues);
     const aliases = readAliases(declaration.aliases, `${path}.aliases`, issues);
     const tracked = readMeasurements(declaration.measurements, `${path}.measurements`, issues);
+    const weightUnit = declaration.weightUnit;
+    if (weightUnit !== undefined && !isUnit(weightUnit)) {
+      issue(issues, 'INVALID_WEIGHT_UNIT', `${path}.weightUnit`, 'Choose lb or kg for the exercise weight unit.');
+      continue;
+    }
     const distanceUnit = declaration.distanceUnit === undefined ? undefined
       : readDistanceUnit(declaration.distanceUnit, `${path}.distanceUnit`, issues);
     const elevationUnit = declaration.elevationUnit === undefined ? undefined
@@ -207,11 +211,10 @@ async function readExerciseDeclarations(
     }
     const exercise: Exercise = {
       id, name, aliases: combineAliases(name, aliases), equipment: '', archived: false,
-      loadMode: 'weight', unit: 'lb', measurements: tracked, distanceUnit: distanceUnit ?? 'm', elevationUnit, tags: [],
+      loadMode: 'weight', unit: 'lb', measurements: tracked, weightUnit, distanceUnit, elevationUnit, tags: [],
     };
     drafts.set(id, {
       exercise, measurementsSpecified: declaration.measurements !== undefined,
-      distanceUnitSpecified: declaration.distanceUnit !== undefined,
     });
     catalog.add(exercise);
   }
@@ -433,7 +436,7 @@ async function readWorkout(
 }
 
 function finalizeDraft(draft: DraftExercise, sets: WorkoutSet[]): Exercise {
-  const { exercise, measurementsSpecified, distanceUnitSpecified } = draft;
+  const { exercise, measurementsSpecified } = draft;
   const used = new Set(sets.flatMap(setMeasurements));
   const tracked = measurementsSpecified ? exercise.measurements : used.size
     ? measurementKeys.filter((measurement) => used.has(measurement)) : ['weight', 'reps'] as Measurement[];
@@ -442,8 +445,6 @@ function finalizeDraft(draft: DraftExercise, sets: WorkoutSet[]): Exercise {
   const loadMode = tracked.includes('weight') ? (modes.size === 1 ? loads[0].mode : 'weight') : 'bodyweight';
   return {
     ...exercise, measurements: tracked, loadMode, unit: loads[0]?.unit ?? exercise.unit,
-    distanceUnit: distanceUnitSpecified ? exercise.distanceUnit : sets.find((set) => set.distance)?.distance?.unit ?? exercise.distanceUnit,
-    elevationUnit: exercise.elevationUnit ?? sets.find((set) => set.elevationGain)?.elevationGain?.unit,
   };
 }
 
@@ -460,8 +461,8 @@ function notesToCreate(
   for (const id of setsByExercise.keys()) {
     const match = catalog.byId.get(id);
     if (!match?.starter) continue;
-    const { id: starterId, name, aliases, equipment, archived, measurements: tracked, distanceUnit, elevationUnit, loadMode, unit, tags } = match;
-    notes.push({ id: starterId, name, aliases, equipment, archived, measurements: tracked, distanceUnit, elevationUnit, loadMode, unit, tags });
+    const { id: starterId, name, aliases, equipment, archived, measurements: tracked, weightUnit, distanceUnit, elevationUnit, loadMode, unit, tags } = match;
+    notes.push({ id: starterId, name, aliases, equipment, archived, measurements: tracked, weightUnit, distanceUnit, elevationUnit, loadMode, unit, tags });
   }
   return notes;
 }

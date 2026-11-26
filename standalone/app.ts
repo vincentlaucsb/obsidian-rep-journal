@@ -2,7 +2,7 @@ import { mount, unmount } from 'svelte';
 import PlanView from './PlanView.svelte';
 import type { RenderPlanMarkdown } from './plan-view.ts';
 import type { LineChartOptions } from 'svgplot-wasm';
-import { describeDistance, describeElevationGain, distanceUnits, elevationUnits, setMeasurements,
+import { describeDistance, describeElevationGain, describeWeight, distanceUnits, elevationUnits, setMeasurements,
   type ExerciseChoice, type ExerciseNote, type ExerciseTag, type LedgerData, type LoadMode, type Measurement, type TagGroup,
   type WeightUnit, type Workout, type WorkoutFile, type WorkoutSet } from '../src/model.ts';
 import type { ContextOptions, ExportFormat } from '../src/exports.ts';
@@ -14,11 +14,12 @@ import { createExportScreen } from './export-screen.ts';
 import { lucideIcon } from './icons.js';
 import { plannedExercise, PlanUses, type PlanUse } from './plan-uses.ts';
 import { mountStrengthChart } from './strength-chart.js';
-import { convertDistance, convertWeight } from '../src/units.ts';
+import { convertDistance, convertWeight, displayUnits, entryUnits, isMeasurementSystem, journalWeightUnit, type MeasurementSystem, type MeasurementUnits } from '../src/units.ts';
 
 export interface JournalAdapter {
   renderPlanMarkdown?: RenderPlanMarkdown;
-  loadJournal(): Promise<LedgerData & { starters: ExerciseChoice[]; today: string; unit: WeightUnit; vaultKey: string; datedPlans: DatedPlanNote[] }>;
+  loadJournal(): Promise<LedgerData & { starters: ExerciseChoice[]; today: string; unit: WeightUnit; measurementSystem: MeasurementSystem; vaultKey: string; datedPlans: DatedPlanNote[] }>;
+  saveMeasurementSystem?(system: MeasurementSystem): Promise<void>;
   enablePopover(): Promise<void>;
   listPlans(): Promise<PlanNote[]>;
   readPlan(path: string): Promise<ReturnType<typeof parseWorkoutPlan>>;
@@ -44,13 +45,13 @@ export interface MountedJournal {
   openPlan(file: PlanNote, start?: boolean): Promise<void>;
   reload(force?: boolean): Promise<void>;
   refreshVaultNotes(): Promise<void>;
-  setWeightUnit(unit: WeightUnit): void;
+  setMeasurementSystem(system: MeasurementSystem): void;
   dispose(): void;
 }
 
 export type CreateJournalElement = <Tag extends keyof HTMLElementTagNameMap>(tag: Tag) => HTMLElementTagNameMap[Tag];
 
-type Screen = 'log' | 'calendar' | 'plans' | 'plan' | 'entry' | 'edit-set' | 'exercises' | 'edit-exercise' | 'progress' | 'export';
+type Screen = 'log' | 'calendar' | 'plans' | 'plan' | 'entry' | 'edit-set' | 'exercises' | 'edit-exercise' | 'progress' | 'export' | 'settings';
 type EditorOrigin = 'exercises' | 'progress' | 'entry';
 type JournalData = Awaited<ReturnType<JournalAdapter['loadJournal']>>;
 type ProgressReport = Awaited<ReturnType<JournalAdapter['readProgress']>>;
@@ -66,7 +67,6 @@ interface Entry {
   exerciseId?: string;
   setId: string;
   planUse?: PlanUse;
-  unit: WeightUnit;
   date: string;
   selectedDate: boolean;
   workoutId: string | null;
@@ -193,6 +193,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     [['progress'], 'Progress', () => openProgress(progress.exerciseId, null)],
     [['export'], 'Export', () => view('export')],
   ];
+  if (adapter.saveMeasurementSystem) menuActions.push([['settings'], 'Settings', () => view('settings')]);
   const menuItems = menuActions.map(([screens, label, action]) => ({
     screens, control: button(label, () => navigate(action)),
   }));
@@ -339,6 +340,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     if (state.screen === 'plan') renderPlan();
     if (state.screen === 'entry') app.append(renderEntry());
     if (state.screen === 'edit-set') app.append(renderSetEditor());
+    if (state.screen === 'settings') app.append(renderSettings());
     if (state.screen === 'exercises') app.append(renderExercises());
     if (state.screen === 'edit-exercise') app.append(renderExerciseEditor());
     if (state.screen === 'progress') {
@@ -351,6 +353,30 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       }
     }
     if (state.screen === 'export') disposeExportScreen = exportScreen.mount(app, journalData().today);
+  }
+
+  function renderSettings() {
+    const select = el('select', { name: 'measurementSystem' },
+      el('option', { value: 'imperial' }, 'Imperial (lb, mi, ft)'),
+      el('option', { value: 'metric' }, 'Metric (kg, km, m)'));
+    select.value = journalData().measurementSystem;
+    const error = el('p', { class: 'warning', role: 'alert', hidden: '' });
+    select.addEventListener('change', () => {
+      const system = select.value;
+      if (!isMeasurementSystem(system) || !adapter.saveMeasurementSystem) return;
+      select.disabled = true;
+      error.hidden = true;
+      void adapter.saveMeasurementSystem(system).then(() => {
+        setMeasurementSystem(system);
+      }).catch((reason: unknown) => {
+        error.textContent = message(reason);
+        error.hidden = false;
+        select.value = journalData().measurementSystem;
+      }).finally(() => { select.disabled = false; });
+    });
+    return el('section', { class: 'page' },
+      button('← Workout log', () => view('log'), { className: 'text-button' }),
+      el('h1', {}, 'Settings'), el('div', { class: 'entry-form' }, el('label', {}, 'Measurement system', select), error));
   }
 
   function renderLog() {
@@ -440,17 +466,18 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
 
   function setValues(set: WorkoutSet, exercise?: ExerciseNote) {
     const values = [];
+    const units = displayUnits(journalData().measurementSystem, exercise);
     if (set.load && set.load.mode !== 'bodyweight') {
       const suffix = set.load.mode === 'assistance' ? ' assistance' : '';
-      values.push(`${set.load.mode === 'added' ? '+' : ''}${set.load.value} ${set.load.unit}${suffix}`);
+      values.push(`${set.load.mode === 'added' ? '+' : ''}${describeWeight(set.load, units.weightUnit)}${suffix}`);
     }
     if (set.reps !== undefined) values.push(`${set.reps} ${set.reps === 1 ? 'rep' : 'reps'}`);
     if (set.durationSeconds !== undefined) {
       const minutes = Math.floor(set.durationSeconds / 60);
       values.push(minutes ? `${minutes}:${String(set.durationSeconds % 60).padStart(2, '0')} min` : `${set.durationSeconds} sec`);
     }
-    if (set.distance) values.push(describeDistance(set.distance, exercise?.distanceUnit));
-    if (set.elevationGain) values.push(describeElevationGain(set.elevationGain, exercise?.elevationUnit));
+    if (set.distance) values.push(describeDistance(set.distance, units.distanceUnit));
+    if (set.elevationGain) values.push(describeElevationGain(set.elevationGain, units.elevationUnit));
     return values;
   }
 
@@ -579,8 +606,9 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       elevationGain: set.elevationGain?.value };
     const measurementKeys = setMeasurements(set);
     if (!set.elevationGain && exercise?.measurements.includes('elevationGain')) measurementKeys.push('elevationGain');
+    const elevationUnit = set.elevationGain?.unit ?? entryUnits(journalData().unit, journalData().measurementSystem, exercise).elevationUnit;
     const fields = setFields(measurementKeys, values, {
-      weight, distanceUnit: set.distance?.unit, elevationUnit: set.elevationGain?.unit ?? exercise?.elevationUnit,
+      weight, distanceUnit: set.distance?.unit, elevationUnit,
     });
     const error = el('p', { role: 'alert', class: 'warning', hidden: '' });
     const submit = el('button', { type: 'submit', class: 'primary' }, 'Save set');
@@ -603,7 +631,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       const changed = readSetFields(form, measurementKeys, true);
-      void submitChange(submit, { kind: 'edit', original: set, values: changed });
+      void submitChange(submit, { kind: 'edit', original: set, values: changed, elevationUnit });
     });
     function submitChange(control: HTMLButtonElement, change: ExistingWorkoutChange) {
       return saveChange(control, error, () => adapter.editWorkout({ date: session.date, workoutId: session.id, change }), (saved) => {
@@ -675,11 +703,18 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     aliases.value = exercise?.aliases.join('\n') ?? '';
     const tracked = new Set<Measurement>(exercise?.measurements ?? ['weight', 'reps']);
     const measurements = el('fieldset', { class: 'exercise-checks' }, el('legend', {}, 'Measurements'));
-    const distance = el('select', { name: 'distanceUnit' }, ...distanceUnits.map((unit) => el('option', { value: unit }, unit)));
-    distance.value = exercise?.distanceUnit ?? 'm';
+    const chooseUnit = (name: string, values: readonly string[], current?: string) => {
+      const select = el('select', { name }, el('option', { value: '' }, 'Use journal default'),
+        ...values.map((unit) => el('option', { value: unit }, unit)));
+      select.value = current ?? '';
+      return select;
+    };
+    const weightUnits = ['lb', 'kg'] as const;
+    const weight = chooseUnit('weightUnit', weightUnits, exercise?.weightUnit);
+    const distance = chooseUnit('distanceUnit', distanceUnits, exercise?.distanceUnit);
+    const elevation = chooseUnit('elevationUnit', elevationUnits, exercise?.elevationUnit);
+    const weightField = el('label', { hidden: tracked.has('weight') ? undefined : '' }, 'Weight unit', weight);
     const distanceField = el('label', { hidden: tracked.has('distance') ? undefined : '' }, 'Distance unit', distance);
-    const elevation = el('select', { name: 'elevationUnit' }, ...elevationUnits.map((unit) => el('option', { value: unit }, unit)));
-    elevation.value = exercise?.elevationUnit ?? 'm';
     const elevationField = el('label', { hidden: tracked.has('elevationGain') ? undefined : '' }, 'Elevation unit', elevation);
     for (const [key, label] of Object.entries({ ...measurementNames, time: 'Time' }) as Array<[Measurement, string]>) {
       const input = el('input', { type: 'checkbox', name: 'measurements', value: key });
@@ -687,6 +722,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       input.addEventListener('change', () => {
         if (input.checked) tracked.add(key);
         else tracked.delete(key);
+        weightField.hidden = !tracked.has('weight');
         distanceField.hidden = !tracked.has('distance');
         elevationField.hidden = !tracked.has('elevationGain');
       });
@@ -705,15 +741,16 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const submit = el('button', { type: 'submit', class: 'primary' }, 'Save exercise');
     const error = el('p', { role: 'alert', class: 'warning', hidden: '' });
     const form = el('form', { class: 'entry-form' }, el('label', {}, 'Display name', name),
-      el('label', {}, 'Search aliases, one per line', aliases), measurements, distanceField, elevationField, tags,
+      el('label', {}, 'Search aliases, one per line', aliases), measurements, weightField, distanceField, elevationField, tags,
       el('label', { class: 'check-field' }, archived, 'Archived'), error, el('div', {}, submit));
     const split = (value: string) => value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       const values = {
         name: name.value.trim(), aliases: split(aliases.value), archived: archived.checked, measurements: [...tracked],
-        distanceUnit: tracked.has('distance') ? distanceUnits.find(unit => unit === distance.value) : undefined,
-        elevationUnit: tracked.has('elevationGain') ? elevationUnits.find(unit => unit === elevation.value) : undefined,
+        weightUnit: tracked.has('weight') ? weightUnits.find(unit => unit === weight.value) ?? null : undefined,
+        distanceUnit: tracked.has('distance') ? distanceUnits.find(unit => unit === distance.value) ?? null : undefined,
+        elevationUnit: tracked.has('elevationGain') ? elevationUnits.find(unit => unit === elevation.value) ?? null : undefined,
         tags: tagsFields.flatMap(([group, field]) => split(field.value).map((name) => ({ group, name }))),
       };
       void saveChange(submit, error, () => adapter.saveExercise({ exerciseId: id, original: exercise, values }, unit), (saved) => {
@@ -1071,7 +1108,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   function openEntry(exerciseId?: string, planUse?: PlanUse) {
-    state.entry = { exerciseId, setId: adapter.makeSetId(), planUse, unit: journalData().unit, date: workoutDate(),
+    state.entry = { exerciseId, setId: adapter.makeSetId(), planUse, date: workoutDate(),
       selectedDate: Boolean(state.date), workoutId: selectedWorkout()?.id ?? null, picker: { search: '', tags: new Set() } };
     view('entry');
     if (exerciseId) {
@@ -1151,30 +1188,30 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const latest = findLast((currentIndex < 0 ? past : past.slice(0, currentIndex + 1)).flatMap(({ sets }) => sets),
       ({ exerciseId }) => exerciseId === exercise.id);
     const last = findLast(earlier, ({ sets }) => sets.some(({ exerciseId }) => exerciseId === exercise.id));
-    const fields = setFields(exercise.measurements, { weight: latest?.load && latest.load.mode !== 'bodyweight' && latest.load.unit === entry.unit ? latest.load.value : undefined },
-      { ...exercise, weight: { mode: exercise.loadMode, unit: entry.unit } });
+    const units = entryUnits(journalData().unit, journalData().measurementSystem, exercise);
+    const fields = setFields(exercise.measurements, { weight: latest?.load && latest.load.mode !== 'bodyweight' && latest.load.unit === units.weightUnit ? latest.load.value : undefined },
+      { ...units, weight: { mode: exercise.loadMode, unit: units.weightUnit } });
     const submit = el('button', { type: 'submit', class: 'primary' }, 'Log set →');
-    if (last) form.append(renderLastSession(last, exercise, entry.unit, form));
+    if (last) form.append(renderLastSession(last, exercise, units, form));
     form.append(fields, error, submit);
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       if (state.saving) return;
-      void logSet(entry, readSetFields(form, exercise.measurements), submit, error);
+      void logSet(entry, units, readSetFields(form, exercise.measurements), submit, error);
     });
     page.append(form);
     return page;
   }
 
-  function renderLastSession(session: Workout, exercise: ExerciseNote, weightUnit: WeightUnit, form: HTMLFormElement) {
+  function renderLastSession(session: Workout, exercise: ExerciseNote, units: Required<MeasurementUnits>, form: HTMLFormElement) {
     const sets = session.sets.filter(({ exerciseId }) => exerciseId === exercise.id);
     const { load, reps, durationSeconds, distance, elevationGain } = required(sets.at(-1));
-    const rounded = (value: number) => Number(value.toFixed(3));
     const values = {
       weight: load && load.mode !== 'bodyweight'
-        ? load.unit === weightUnit ? load.value : rounded(convertWeight(load.value, load.unit, weightUnit)) : undefined,
+        ? convertWeight(load.value, load.unit, units.weightUnit) : undefined,
       reps, time: durationSeconds,
-      distance: distance && convertDistance(distance.value, distance.unit, exercise.distanceUnit ?? 'm'),
-      elevationGain: elevationGain && convertDistance(elevationGain.value, elevationGain.unit, exercise.elevationUnit ?? 'm'),
+      distance: distance && convertDistance(distance.value, distance.unit, units.distanceUnit),
+      elevationGain: elevationGain && convertDistance(elevationGain.value, elevationGain.unit, units.elevationUnit),
     };
     const usable = exercise.measurements.filter((measurement) => values[measurement] !== undefined);
     const last = el('section', { class: 'last-session plan-section' }, el('h2', {}, 'Last session'),
@@ -1187,10 +1224,10 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     return last;
   }
 
-  function logSet(entry: Entry, values: SetInputs, submit: HTMLButtonElement, error: HTMLElement) {
+  function logSet(entry: Entry, units: Required<MeasurementUnits>, values: SetInputs, submit: HTMLButtonElement, error: HTMLElement) {
     const { date, workoutId, selectedDate, exerciseId } = entry;
     if (!exerciseId) return;
-    return saveChange(submit, error, () => adapter.saveSet({ date, selectedDate, workoutId, exerciseId, setId: entry.setId, values }, entry.unit), (saved) => {
+    return saveChange(submit, error, () => adapter.saveSet({ date, selectedDate, workoutId, exerciseId, setId: entry.setId, values, units }, units.weightUnit), (saved) => {
       recordWorkout(saved);
       if (workoutId === null) noteDrafts.associate(date, saved.workout.id);
       const savedSet = saved.workout.sets.find(({ id }) => id === entry.setId);
@@ -1267,6 +1304,14 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     }
   }
 
+  function setMeasurementSystem(system: MeasurementSystem) {
+    if (!mounted || !state.journal || journalData().measurementSystem === system) return;
+    journalData().measurementSystem = system;
+    journalData().unit = journalWeightUnit(system);
+    if (state.screen === 'progress') void openProgress();
+    else if (!preserveForm() && state.screen !== 'settings') render();
+  }
+
   const ready = reload();
   return {
     ready,
@@ -1292,12 +1337,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       vaultNotesRefreshPending = true;
       await flushVaultNotesRefresh();
     },
-    setWeightUnit(unit) {
-      if (!mounted || !state.journal) return;
-      journalData().unit = unit;
-      if (state.screen === 'progress') void openProgress();
-      else if (!editing()) render();
-    },
+    setMeasurementSystem,
     dispose() {
       mounted = false;
       disposeScreen();

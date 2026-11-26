@@ -1,4 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { build, context } from 'esbuild';
 import { svelteNotices, sveltePlugin } from './scripts/svelte-esbuild.ts';
 
@@ -24,8 +26,48 @@ const options = {
   outfile: 'main.js',
 };
 
+const devPlugin = new URL('./dev-vault/.obsidian/plugins/rep-journal/', import.meta.url);
+const staticAssets = ['manifest.json', 'styles.css'];
+
+async function syncDevPlugin() {
+  const directory = await stat(devPlugin).catch(error => {
+    if (error.code !== 'ENOENT') throw error;
+  });
+  if (!directory?.isDirectory()) return;
+  for (const name of [...staticAssets, 'main.js']) {
+    const destination = new URL(name, devPlugin);
+    const contents = await readFile(new URL(name, import.meta.url));
+    const previous = await readFile(destination).catch(error => {
+      if (error.code !== 'ENOENT') throw error;
+    });
+    if (previous?.equals(contents)) continue;
+    const temporary = new URL('.' + name + '-' + randomUUID() + '.tmp', devPlugin);
+    try {
+      await writeFile(temporary, contents, { flag: 'wx' });
+      await rename(temporary, destination);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+}
+
 if (process.argv.includes('--watch')) {
-  const watcher = await context({ ...options, sourcemap: 'inline' });
+  const watchDevPlugin = {
+    name: 'watch-dev-vault',
+    setup(build) {
+      build.onResolve({ filter: /main\.ts$/ }, args => {
+        if (args.kind !== 'entry-point') return;
+        return {
+          path: fileURLToPath(new URL('./src/main.ts', import.meta.url)),
+          watchFiles: staticAssets.map(name => fileURLToPath(new URL(name, import.meta.url))),
+        };
+      });
+      build.onEnd(async result => {
+        if (!result.errors.length) await syncDevPlugin();
+      });
+    },
+  };
+  const watcher = await context({ ...options, plugins: [...options.plugins, watchDevPlugin], sourcemap: 'inline' });
   await watcher.watch();
 } else {
   const { metafile } = await build({ ...options, metafile: true });
@@ -37,4 +79,5 @@ if (process.argv.includes('--watch')) {
   if (externalImports.length) {
     throw new Error(`Obsidian bundle contains unsupported external imports: ${externalImports.map(entry => entry.path).join(', ')}`);
   }
+  await syncDevPlugin();
 }

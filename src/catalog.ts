@@ -35,9 +35,9 @@ const starters: Starter[] = [
     tags: { region: ['Full Body'], role: ['Auxiliary'], activity: ['Strength'], movement: ['Carry'] } },
   { id: '0000000b-7928-4ede-89bb-09c8eeec466e', name: 'Walking Lunge', aliases: ['Walking Lunges'], measurements: ['reps', 'distance'],
     tags: { region: ['Lower Body'], muscles: ['Quads', 'Glutes'], role: ['Auxiliary'], activity: ['Strength'], movement: ['Lunge'] } },
-  { id: '0000000c-7928-4ede-89bb-09c8eeec466e', name: 'Rowing', aliases: ['Rowing Machine', 'Erg'], measurements: ['time', 'distance'],
+  { id: '0000000c-7928-4ede-89bb-09c8eeec466e', name: 'Rowing', aliases: ['Rowing Machine', 'Erg'], measurements: ['time', 'distance'], distanceUnit: 'm',
     tags: { region: ['Full Body'], role: ['Main'], activity: ['Cardio'], movement: ['Pull'] } },
-  { id: '0000000d-7928-4ede-89bb-09c8eeec466e', name: 'Running', aliases: ['Run', 'Treadmill Run'], measurements: ['time', 'distance'], distanceUnit: 'mi',
+  { id: '0000000d-7928-4ede-89bb-09c8eeec466e', name: 'Running', aliases: ['Run', 'Treadmill Run'], measurements: ['time', 'distance'],
     tags: { region: ['Lower Body'], role: ['Main'], activity: ['Cardio'] } },
   { id: '0000000e-7928-4ede-89bb-09c8eeec466e', name: 'Band Pull-apart', aliases: ['Band Pull-aparts'], measurements: ['reps'],
     tags: { region: ['Upper Body'], muscles: ['Shoulders'], role: ['Warm-up'], activity: ['Strength'], movement: ['Pull'] } },
@@ -50,8 +50,8 @@ export function starterExercises(existing: readonly ExerciseChoice[]): ExerciseC
   const names = new Set(existing.flatMap((exercise) => [exercise.name, ...exercise.aliases]).map(nameKey));
   return starters
     .filter(({ id, name, aliases = [] }) => !ids.has(id) && ![name, ...aliases].some((value) => names.has(nameKey(value))))
-    .map(({ id, name, measurements, aliases = [], distanceUnit = 'm', tags }) => ({
-      id, name, measurements, aliases, distanceUnit,
+    .map(({ id, name, measurements, aliases = [], distanceUnit, tags }) => ({
+      id, name, measurements, aliases, ...(distanceUnit && { distanceUnit }),
       tags: Object.entries(tags).flatMap(([group, values]) => values.map((value) => ({ group: group as TagGroup, name: value }))),
       archived: false, equipment: '', loadMode: measurements.includes('weight') ? 'weight' : 'bodyweight',
       unit: 'lb', starter: true,

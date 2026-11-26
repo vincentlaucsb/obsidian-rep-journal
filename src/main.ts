@@ -1,5 +1,6 @@
 import { FileSystemAdapter, MarkdownView, Notice, Platform, Plugin, PluginSettingTab, Setting, TFolder, type SettingDefinitionItem, type TAbstractFile, type TFile, type WorkspaceLeaf } from 'obsidian';
-import { journalFolder, journalSettingsFile, normalizeJournalFolder, parseJournalFolder } from './journal-paths.ts';
+import { journalFolder, journalSettingsFile, normalizeJournalFolder, parseJournalFolder, parseJournalSettings, readMeasurementSystem } from './journal-paths.ts';
+import { writeDesktopJournalSettings } from './desktop-journal-settings.ts';
 import { errorMessage, isRecord, isUnit, makeId, type ExerciseNote, type WeightUnit } from './model.ts';
 import { MODERN_JOURNAL_VIEW, ModernJournalView, type JournalScreen } from './modern-journal-view.ts';
 import { createObsidianJournalAdapter } from './obsidian-journal-adapter.ts';
@@ -7,6 +8,7 @@ import { drawObsidianStrengthChart } from './obsidian-strength-chart.ts';
 import { affectsExerciseNotes } from './repo/exercise-repository.ts';
 import { affectsDatedPlanFolder, datedPlanDate } from './repo/plan-repository.ts';
 import { LedgerRepository } from './repository.ts';
+import { defaultMeasurementSystem, isMeasurementSystem, type MeasurementSystem } from './units.ts';
 
 const legacyView = 'set-ledger-workout-view';
 declare const require: (id: 'node:fs/promises') => typeof import('node:fs/promises');
@@ -15,6 +17,8 @@ export default class RepJournalPlugin extends Plugin {
   private opening = false;
   private tidyingExerciseNotes = false;
   private preferences: Record<string, unknown> = {};
+  private settingsWrites: Promise<unknown> = Promise.resolve();
+  private sharedMeasurementSystem?: MeasurementSystem;
   private repository?: LedgerRepository;
   private adapter?: ReturnType<RepJournalPlugin['createAdapter']>;
 
@@ -22,7 +26,11 @@ export default class RepJournalPlugin extends Plugin {
     return this.repository?.root ?? '';
   }
 
-  get weightUnit(): WeightUnit {
+  get measurementSystem(): MeasurementSystem {
+    return this.sharedMeasurementSystem ?? defaultMeasurementSystem(this.weightUnit);
+  }
+
+  private get weightUnit(): WeightUnit {
     const unit = this.preferences.weightUnit;
     return isUnit(unit) ? unit : 'lb';
   }
@@ -32,9 +40,9 @@ export default class RepJournalPlugin extends Plugin {
     if (isRecord(stored)) this.preferences = stored;
     const vault = this.app.vault;
     try {
-      const folder = await vault.adapter.exists(journalSettingsFile)
-        ? parseJournalFolder(await vault.adapter.read(journalSettingsFile))
-        : journalFolder;
+      const text = await vault.adapter.exists(journalSettingsFile) ? await vault.adapter.read(journalSettingsFile) : '{}';
+      const folder = parseJournalFolder(text);
+      this.sharedMeasurementSystem = readMeasurementSystem(parseJournalSettings(text), defaultMeasurementSystem(this.weightUnit));
       this.repository = this.createRepository(folder);
     } catch (error: unknown) {
       new Notice(`Could not read ${journalSettingsFile}. ${errorMessage(error)}`);
@@ -92,6 +100,7 @@ export default class RepJournalPlugin extends Plugin {
       vaultKey: repository.root === journalFolder ? `obsidian:${vaultKey}` : JSON.stringify(['obsidian', vaultKey, repository.root]),
       statFile: this.desktopVaultStat(),
       weightUnit: () => this.weightUnit,
+      measurementSystem: () => this.refreshMeasurementSystem(),
       reportExportError: (error) => { new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`); },
       openExerciseNote: (exercise) => { void this.openExerciseNote(exercise); },
     });
@@ -114,50 +123,36 @@ export default class RepJournalPlugin extends Plugin {
       throw new Error('Choose a journal folder outside the other journal’s Exercises folder.');
     }
     const repository = this.createRepository(root);
-    const settings = await this.readJournalSettings();
-    await this.publishJournalSettings({ ...settings, journalFolder: root });
+    await this.updateSharedSettings({ journalFolder: root });
     this.repository = repository;
     const adapter = this.createAdapter();
     this.adapter = adapter;
     await Promise.all(this.journalViews().map((view) => view.setAdapter(adapter)));
   }
 
-  private async publishJournalSettings(settings: Record<string, unknown>): Promise<void> {
+  private updateSharedSettings(changes: Record<string, unknown>): Promise<void> {
+    const pending = this.settingsWrites.catch(() => undefined).then(() => this.publishJournalSettings(changes));
+    this.settingsWrites = pending;
+    return pending;
+  }
+
+  private async publishJournalSettings(changes: Record<string, unknown>): Promise<void> {
     const { adapter } = this.app.vault;
-    const content = `${JSON.stringify(settings, null, 2)}\n`;
+    const content = (settings: Record<string, unknown>) => `${JSON.stringify({ ...settings, ...changes }, null, 2)}\n`;
     if (Platform.isDesktop && adapter instanceof FileSystemAdapter) {
       // The desktop vault adapter's rename refuses an existing destination.
-      const fs = require('node:fs/promises');
-      const temporary = `${journalSettingsFile}.${makeId()}.tmp`;
-      const stagingPath = adapter.getFullPath(temporary);
-      const staging = await fs.open(stagingPath, 'wx');
-      try {
-        try {
-          await staging.writeFile(content);
-        } finally {
-          await staging.close();
-        }
-        await fs.rename(stagingPath, adapter.getFullPath(journalSettingsFile));
-      } finally {
-        await fs.unlink(stagingPath).catch(() => undefined);
-      }
+      await writeDesktopJournalSettings(require('node:fs/promises'), adapter.getFullPath(journalSettingsFile), changes, makeId());
       return;
     }
-    if (await adapter.exists(journalSettingsFile)) await adapter.process(journalSettingsFile, () => content);
-    else await adapter.write(journalSettingsFile, content);
+    if (await adapter.exists(journalSettingsFile)) {
+      await adapter.process(journalSettingsFile, (text) => content(parseJournalSettings(text)));
+    } else await adapter.write(journalSettingsFile, content({}));
   }
 
   private async readJournalSettings(): Promise<Record<string, unknown>> {
     const { adapter } = this.app.vault;
     if (!await adapter.exists(journalSettingsFile)) return {};
-    const text = await adapter.read(journalSettingsFile);
-    try {
-      const settings: unknown = JSON.parse(text);
-      return isRecord(settings) ? settings : {};
-    } catch (error: unknown) {
-      if (!(error instanceof SyntaxError)) throw error;
-      return {};
-    }
+    return parseJournalSettings(await adapter.read(journalSettingsFile));
   }
 
   private watchJournalNotes(): void {
@@ -201,13 +196,16 @@ export default class RepJournalPlugin extends Plugin {
     }
   }
 
-  async updateWeightUnit(weightUnit: WeightUnit): Promise<void> {
-    const next = { ...this.preferences, weightUnit };
-    await this.saveData(next);
-    this.preferences = next;
-    for (const { view } of this.app.workspace.getLeavesOfType(MODERN_JOURNAL_VIEW)) {
-      if (view instanceof ModernJournalView) view.setWeightUnit(weightUnit);
-    }
+  async refreshMeasurementSystem(): Promise<MeasurementSystem> {
+    const system = readMeasurementSystem(await this.readJournalSettings(), defaultMeasurementSystem(this.weightUnit));
+    this.sharedMeasurementSystem = system;
+    return system;
+  }
+
+  async updateMeasurementSystem(system: MeasurementSystem): Promise<void> {
+    await this.updateSharedSettings({ measurementSystem: system });
+    this.sharedMeasurementSystem = system;
+    for (const view of this.journalViews()) view.setMeasurementSystem(system);
   }
 
   private openModern(screen: JournalScreen = 'today'): Promise<void> {
@@ -249,7 +247,7 @@ export default class RepJournalPlugin extends Plugin {
   }
 }
 
-const weightSetting = { name: 'Weight unit', desc: 'Used for new sets and estimated 1RM. Logged sets keep their original units.' };
+const measurementSetting = { name: 'Measurement system', desc: 'Sets default units for new sets, workout history, and estimated 1RM.' };
 const folderSetting = { name: 'Journal folder', desc: 'Path relative to the vault. Saving opens that journal in all workout log tabs.' };
 
 class RepJournalSettings extends PluginSettingTab {
@@ -260,14 +258,14 @@ class RepJournalSettings extends PluginSettingTab {
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
       { ...folderSetting, render: (setting) => { this.addJournalFolderControl(setting); } },
-      { ...weightSetting, render: (setting) => { this.addWeightUnitControl(setting); } },
+      { ...measurementSetting, render: (setting) => { this.addMeasurementSystemControl(setting); } },
     ];
   }
 
   display(): void {
     this.containerEl.empty();
     this.addJournalFolderControl(new Setting(this.containerEl).setName(folderSetting.name).setDesc(folderSetting.desc));
-    this.addWeightUnitControl(new Setting(this.containerEl).setName(weightSetting.name).setDesc(weightSetting.desc));
+    this.addMeasurementSystemControl(new Setting(this.containerEl).setName(measurementSetting.name).setDesc(measurementSetting.desc));
   }
 
   private addJournalFolderControl(setting: Setting): void {
@@ -294,18 +292,18 @@ class RepJournalSettings extends PluginSettingTab {
     });
   }
 
-  private addWeightUnitControl(setting: Setting): void {
+  private addMeasurementSystemControl(setting: Setting): void {
     setting.addDropdown((control) => {
-      control.addOption('lb', 'Pounds (lb)').addOption('kg', 'Kilograms (kg)').setValue(this.journal.weightUnit);
-      control.selectEl.setAttribute('aria-label', weightSetting.name);
-      control.onChange(async (unit) => {
-        if (!isUnit(unit)) return;
+      control.addOption('imperial', 'Imperial (lb, mi, ft)').addOption('metric', 'Metric (kg, km, m)').setValue(this.journal.measurementSystem);
+      control.selectEl.setAttribute('aria-label', measurementSetting.name);
+      control.onChange(async (system) => {
+        if (!isMeasurementSystem(system)) return;
         control.setDisabled(true);
         try {
-          await this.journal.updateWeightUnit(unit);
+          await this.journal.updateMeasurementSystem(system);
         } catch (error: unknown) {
-          control.setValue(this.journal.weightUnit);
-          new Notice(`Could not save the weight unit. ${errorMessage(error)}`);
+          control.setValue(this.journal.measurementSystem);
+          new Notice(`Could not save the measurement system. ${errorMessage(error)}`);
         } finally {
           control.setDisabled(false);
         }

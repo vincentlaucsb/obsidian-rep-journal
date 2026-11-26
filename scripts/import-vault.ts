@@ -1,3 +1,4 @@
+import * as fs from 'node:fs/promises';
 import type { Buffer } from 'node:buffer';
 import { constants } from 'node:fs';
 import { copyFile, link, lstat, mkdir, open, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
@@ -12,6 +13,7 @@ import { readCatalogExercise } from '../src/catalog.ts';
 import { appendExerciseGuides } from '../src/exercise-guides.ts';
 import { automaticCsvFilename, toCsv } from '../src/exports.ts';
 import { exerciseFilename, journalFolder, journalSettingsFile, nextWorkoutSession, normalizeJournalFolder, parseJournalFolder, workoutFilename } from '../src/journal-paths.ts';
+import { writeDesktopJournalSettings } from '../src/desktop-journal-settings.ts';
 import {
   compareWorkouts, errorMessage, exerciseFrontmatter, isRecord, parseWorkout, readExercise,
   type Exercise, type ExerciseNote, type LedgerData, type Workout, type WorkoutFile,
@@ -92,15 +94,24 @@ async function directoryExists(path: string): Promise<boolean> {
   }
 }
 
-export async function readJournalFolder(root: string): Promise<string> {
+export async function readJournalSettingsBytes(root: string): Promise<Buffer | undefined> {
   const settings = join(root, journalSettingsFile);
   try {
     if (!(await lstat(settings)).isFile()) throw new Error(`Expected a file at ${journalSettingsFile}.`);
-    return parseJournalFolder(await readFile(settings, 'utf8'));
+    return await readFile(settings);
   } catch (error: unknown) {
-    if (hasErrorCode(error, 'ENOENT')) return journalFolder;
+    if (hasErrorCode(error, 'ENOENT')) return;
     throw error;
   }
+}
+
+export async function readJournalFolder(root: string): Promise<string> {
+  const bytes = await readJournalSettingsBytes(root);
+  return bytes ? parseJournalFolder(bytes.toString('utf8')) : journalFolder;
+}
+
+export function updateJournalSettings(root: string, changes: Record<string, unknown>): Promise<void> {
+  return writeDesktopJournalSettings(fs, join(root, journalSettingsFile), changes, randomUUID());
 }
 
 function directoryPrefixes(path: string): string[] {

@@ -1,4 +1,4 @@
-import { convertDistance } from './units.ts';
+import { convertDistance, convertWeight } from './units.ts';
 
 const LEGACY_SCHEMA_VERSION = 1;
 export const SCHEMA_VERSION = 2;
@@ -47,6 +47,7 @@ export interface ExerciseDetails {
   unit: WeightUnit;
   archived: boolean;
   measurements?: Measurement[];
+  weightUnit?: WeightUnit;
   distanceUnit?: DistanceUnit;
   elevationUnit?: ElevationUnit;
   tags?: ExerciseTag[];
@@ -314,6 +315,8 @@ export function changeWorkout(workout: Workout, change: WorkoutChange): Workout 
   return { ...workout, schemaVersion, sets };
 }
 
+export const exerciseUnitFields = ['weight_unit_override', 'distance_unit', 'elevation_unit'] as const;
+
 export function exerciseFrontmatter(exercise: ExerciseDetails & { id: string }): Record<string, unknown> {
   return {
     set_ledger_id: exercise.id,
@@ -323,6 +326,7 @@ export function exerciseFrontmatter(exercise: ExerciseDetails & { id: string }):
     ...(exercise.equipment ? { equipment: exercise.equipment } : {}),
     load_mode: exercise.loadMode,
     weight_unit: exercise.unit,
+    ...(exercise.weightUnit && { weight_unit_override: exercise.weightUnit }),
     archived: exercise.archived,
     exercise_measurements: exercise.measurements ?? (exercise.loadMode === 'bodyweight' ? ['reps'] : ['weight', 'reps']),
     ...(exercise.distanceUnit && { distance_unit: exercise.distanceUnit }),
@@ -341,9 +345,11 @@ export function readExercise(value: unknown): Exercise | null {
   const equipment: unknown = value.equipment ?? '';
   const archived: unknown = value.archived ?? false;
   const tracked: unknown = value.exercise_measurements ?? (value.load_mode === 'bodyweight' ? ['reps'] : ['weight', 'reps']);
+  const weightUnit = value.weight_unit_override ?? undefined;
   const distanceUnit = value.distance_unit ?? undefined;
   const elevationUnit = value.elevation_unit ?? undefined;
   if (!Array.isArray(aliases) || !aliases.every(isName) || typeof equipment !== 'string' || typeof archived !== 'boolean' ||
+      (weightUnit !== undefined && !isUnit(weightUnit)) ||
       (distanceUnit !== undefined && !isDistanceUnit(distanceUnit)) || (elevationUnit !== undefined && !isElevationUnit(elevationUnit)) ||
       !Array.isArray(tracked) || !tracked.length || !tracked.every(isMeasurement)) {
     throw new Error('Invalid or unsupported exercise properties.');
@@ -357,6 +363,7 @@ export function readExercise(value: unknown): Exercise | null {
     unit: value.weight_unit,
     archived,
     measurements: [...new Set(tracked)],
+    ...(weightUnit && { weightUnit }),
     ...(distanceUnit && { distanceUnit }),
     ...(elevationUnit && { elevationUnit }),
     tags: readTags(value.exercise_tags ?? []),
@@ -373,12 +380,17 @@ export function describeElevationGain(elevation: SetElevationGain, preferredUnit
   return `${amount} ${preferredUnit ?? elevation.unit} elevation gain`;
 }
 
-export function describeSet(set: WorkoutSet, exercise?: Pick<Exercise, 'distanceUnit' | 'elevationUnit'>): string {
+export function describeWeight(load: Exclude<SetLoad, { mode: 'bodyweight' }>, preferredUnit?: WeightUnit): string {
+  if (!preferredUnit || preferredUnit === load.unit) return `${load.value} ${load.unit}`;
+  return `${Number(convertWeight(load.value, load.unit, preferredUnit).toFixed(2))} ${preferredUnit}`;
+}
+
+export function describeSet(set: WorkoutSet, exercise?: Pick<Exercise, 'weightUnit' | 'distanceUnit' | 'elevationUnit'>): string {
   const { load, reps, durationSeconds, distance, elevationGain } = set;
   const parts: string[] = [];
   if (reps !== undefined) parts.push(`${reps} ${reps === 1 ? 'rep' : 'reps'}`);
   if (load && load.mode !== 'bodyweight') {
-    const amount = `${load.value} ${load.unit}`;
+    const amount = describeWeight(load, exercise?.weightUnit);
     if (load.mode === 'added') parts.push(`+${amount}`);
     else if (load.mode === 'assistance') parts.push(`${amount} assistance`);
     else parts.push(amount);

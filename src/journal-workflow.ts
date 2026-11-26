@@ -2,11 +2,13 @@ import { exerciseHistory, progressExercises, strengthTrend } from './analytics.t
 import { matchesExerciseName, pickerTags, starterExercises } from './catalog.ts';
 import { journalFolder } from './journal-paths.ts';
 import {
-  combineAliases, describeSet, exerciseFrontmatter, isDate, isDistanceUnit, isElevationUnit, isId, isRecord,
+  combineAliases, describeSet, exerciseFrontmatter, isDate, isDistanceUnit, isElevationUnit, isId, isRecord, isUnit,
   measurements, parseDuration, readExercise, setMeasurements,
   tagGroups, validateSet, type DistanceUnit, type ElevationUnit, type Exercise, type ExerciseChoice, type ExerciseNote, type ExerciseTag,
   type LedgerData, type Measurement, type WeightUnit, type WorkoutChange, type WorkoutFile, type WorkoutSet,
 } from './model.ts';
+
+import { displayUnits, entryUnits, type MeasurementSystem, type MeasurementUnits } from './units.ts';
 
 export const maxPlanBytes = 512 * 1024;
 
@@ -19,6 +21,7 @@ export interface LogSetInput {
   exerciseId: string;
   setId: string;
   values: SetInputs;
+  units?: Required<MeasurementUnits>;
 }
 
 type SetInputs = Partial<Record<Exclude<Measurement, 'time' | 'elevationGain'>, number> &
@@ -28,7 +31,7 @@ export type WorkoutEditInput = {
   date: string;
   workoutId: string;
   change:
-    | { kind: 'edit'; original: WorkoutSet; values: SetInputs }
+    | { kind: 'edit'; original: WorkoutSet; values: SetInputs; elevationUnit?: ElevationUnit }
     | { kind: 'remove'; original: WorkoutSet }
     | { kind: 'notes'; original: string; value: string };
 } | {
@@ -47,8 +50,9 @@ export interface ExerciseEditInput {
     aliases: string[];
     archived: boolean;
     measurements: Measurement[];
-    distanceUnit?: DistanceUnit;
-    elevationUnit?: ElevationUnit;
+    weightUnit?: WeightUnit | null;
+    distanceUnit?: DistanceUnit | null;
+    elevationUnit?: ElevationUnit | null;
     tags: ExerciseTag[];
   };
 }
@@ -58,11 +62,13 @@ export function isWorkoutPlanPath(path: string, root = journalFolder): boolean {
     !['Exercises', 'Exports', 'Workouts'].some((folder) => path.startsWith(`${root}/${folder}/`));
 }
 
-export function exerciseProgress(data: LedgerData, exerciseId: string | null, unit: WeightUnit) {
+export function exerciseProgress(data: LedgerData, exerciseId: string | null, journalUnit: WeightUnit, system?: MeasurementSystem) {
   const exercises = progressExercises(data);
   const selected = exercises.find(({ id }) => id === exerciseId);
   const workouts = data.workouts.map(({ workout }) => workout);
   const history = selected ? exerciseHistory(workouts, selected.id) : [];
+  const unit = selected?.weightUnit ?? journalUnit;
+  const units = displayUnits(system, selected);
   const trend = strengthTrend(history, unit);
   const estimates = new Map(trend.map(({ sessionId, value }) => [sessionId, value]));
   const days = new Map<string, string[]>();
@@ -78,10 +84,10 @@ export function exerciseProgress(data: LedgerData, exerciseId: string | null, un
   return {
     exercises, selected, tags: pickerTags(exercises), unit,
     trend: trend.map(({ date, sessionId, set, value }) => ({
-      date, sessionId, number: sessionNumber(date, sessionId), value, set: describeSet(set, selected),
+      date, sessionId, number: sessionNumber(date, sessionId), value, set: describeSet(set, units),
     })),
     sessions: history.map(({ workout: { id, date }, sets }) => ({
-      id, date, number: sessionNumber(date, id), sets: sets.map((set) => describeSet(set, selected)), estimatedMax: estimates.get(id),
+      id, date, number: sessionNumber(date, id), sets: sets.map((set) => describeSet(set, units)), estimatedMax: estimates.get(id),
     })),
   };
 }
@@ -123,25 +129,34 @@ export function readLogSetInput(input: unknown, today: string) {
   }
   const date = validateWorkoutDate(input.date, today, input.selectedDate);
   if (!isId(input.setId) || !isRecord(input.values)) throw new Error('Missing set ID or measurements.');
-  return { date, exerciseId: input.exerciseId, workoutId: input.workoutId, setId: input.setId, values: input.values };
+  const units = input.units === undefined ? undefined : readEntryUnits(input.units);
+  return { date, exerciseId: input.exerciseId, workoutId: input.workoutId, setId: input.setId, values: input.values, units };
 }
 
-export function prepareLogSet(data: LedgerData, input: ReturnType<typeof readLogSetInput>, unit: WeightUnit):
+function readEntryUnits(units: unknown): Required<MeasurementUnits> {
+  if (!isRecord(units) || !isUnit(units.weightUnit) || !isDistanceUnit(units.distanceUnit) || !isElevationUnit(units.elevationUnit)) {
+    throw new Error('Invalid measurement units.');
+  }
+  return { weightUnit: units.weightUnit, distanceUnit: units.distanceUnit, elevationUnit: units.elevationUnit };
+}
+
+export function prepareLogSet(data: LedgerData, input: ReturnType<typeof readLogSetInput>, unit: WeightUnit, system?: MeasurementSystem):
   { replay: WorkoutFile } | { original?: WorkoutFile; set: WorkoutSet } {
   if (data.issues.length) throw new Error(data.issues[0]);
   const exercise = data.exercises.find(({ id, archived }) => id === input.exerciseId && !archived);
   if (!exercise) throw new Error('That exercise is no longer available. Refresh and try again.');
+  const units = input.units ?? entryUnits(unit, system, exercise);
   const set: WorkoutSet = { id: input.setId, exerciseId: exercise.id, exerciseName: exercise.name, warmup: false };
   for (const measurement of exercise.measurements) {
     if (measurement === 'elevationGain' && input.values.elevationGain === undefined) continue;
     const value = measurementValue(input.values, measurement);
     if (measurement === 'reps') set.reps = value;
     if (measurement === 'time') set.durationSeconds = value;
-    if (measurement === 'distance') set.distance = { value, unit: exercise.distanceUnit ?? 'm' };
-    if (measurement === 'elevationGain') set.elevationGain = { value, unit: exercise.elevationUnit ?? 'm' };
+    if (measurement === 'distance') set.distance = { value, unit: units.distanceUnit };
+    if (measurement === 'elevationGain') set.elevationGain = { value, unit: units.elevationUnit };
     if (measurement === 'weight') {
       const mode = exercise.loadMode;
-      set.load = { mode: mode === 'assistance' || mode === 'added' ? mode : 'weight', value, unit };
+      set.load = { mode: mode === 'assistance' || mode === 'added' ? mode : 'weight', value, unit: units.weightUnit };
     }
   }
   if (!set.load && set.reps !== undefined && set.durationSeconds === undefined && !set.distance && !set.elevationGain) {
@@ -162,7 +177,7 @@ export function prepareLogSet(data: LedgerData, input: ReturnType<typeof readLog
   return { original, set };
 }
 
-export function prepareWorkoutEdit(data: LedgerData, input: unknown, today: string):
+export function prepareWorkoutEdit(data: LedgerData, input: unknown, today: string, system?: MeasurementSystem):
   { replay: WorkoutFile } | { date: string; original?: WorkoutFile; newWorkoutId?: string; change: WorkoutChange } {
   if (!isRecord(input) || !isDate(input.date) || !isRecord(input.change)) throw new Error('Choose a workout session.');
   const { date, workoutId, newWorkoutId, change } = input;
@@ -204,9 +219,10 @@ export function prepareWorkoutEdit(data: LedgerData, input: unknown, today: stri
     if (change.values.elevationGain === null) {
       delete set.elevationGain;
     } else if (before.elevationGain || exercise?.measurements.includes('elevationGain')) {
+      if (change.elevationUnit !== undefined && !isElevationUnit(change.elevationUnit)) throw new Error('Invalid elevation unit.');
       set.elevationGain = {
         value: measurementValue(change.values, 'elevationGain'),
-        unit: before.elevationGain?.unit ?? exercise?.elevationUnit ?? 'm',
+        unit: before.elevationGain?.unit ?? change.elevationUnit ?? entryUnits('lb', system, exercise).elevationUnit,
       };
     } else {
       throw new Error('Enable elevation gain for this exercise before adding it to a set.');
@@ -231,8 +247,9 @@ export function prepareExerciseEdit(data: LedgerData, input: unknown, unit: Weig
   if (typeof values.name !== 'string' || !values.name.trim() || typeof values.archived !== 'boolean' ||
       !Array.isArray(values.aliases) || !values.aliases.every((alias): alias is string => typeof alias === 'string') ||
       !Array.isArray(values.measurements) || !values.measurements.every(isMeasurement) ||
-      (values.distanceUnit !== undefined && !isDistanceUnit(values.distanceUnit)) ||
-      (values.elevationUnit !== undefined && !isElevationUnit(values.elevationUnit)) ||
+      (values.weightUnit != null && !isUnit(values.weightUnit)) ||
+      (values.distanceUnit != null && !isDistanceUnit(values.distanceUnit)) ||
+      (values.elevationUnit != null && !isElevationUnit(values.elevationUnit)) ||
       !Array.isArray(values.tags) || !values.tags.every(isExerciseTag)) {
     throw new Error('Enter an exercise name and valid measurements and tags.');
   }
@@ -246,8 +263,11 @@ export function prepareExerciseEdit(data: LedgerData, input: unknown, unit: Weig
   const name = values.name.trim();
   const exercise = readExercise(exerciseFrontmatter({
     id: exerciseId, name, aliases: combineAliases(name, values.aliases, original?.name),
-    archived: values.archived, measurements: values.measurements, distanceUnit: values.distanceUnit ?? original?.distanceUnit,
-    elevationUnit: values.elevationUnit ?? original?.elevationUnit, tags: values.tags,
+    archived: values.archived, measurements: values.measurements,
+    weightUnit: values.weightUnit === undefined ? original?.weightUnit : values.weightUnit ?? undefined,
+    distanceUnit: values.distanceUnit === undefined ? original?.distanceUnit : values.distanceUnit ?? undefined,
+    elevationUnit: values.elevationUnit === undefined ? original?.elevationUnit : values.elevationUnit ?? undefined,
+    tags: values.tags,
     equipment: original?.equipment ?? '', unit: original?.unit ?? unit,
     loadMode: loadMode === 'assistance' || loadMode === 'added' ? loadMode : values.measurements.includes('weight') ? 'weight' : 'bodyweight',
   }));

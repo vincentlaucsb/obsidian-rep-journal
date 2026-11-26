@@ -8,7 +8,7 @@ const unusedVariables = { args: 'all', argsIgnorePattern: '^_', caughtErrors: 'a
 export default defineConfig(
   globalIgnores([
     'node_modules/**', 'main.js', 'esbuild.config.mjs', 'package.json',
-    'package-lock.json', 'tsconfig.json', 'versions.json', 'test-results/**',
+    'package-lock.json', 'tsconfig.json', 'versions.json', 'test-results/**', 'dev-vault/**',
   ]),
   ...obsidianmd.configs.recommended,
   {
