@@ -6,45 +6,47 @@ import {
   type LedgerData, type WorkoutChange, type WorkoutFile,
 } from './model.ts';
 import { ExerciseRepository } from './repo/exercise-repository.ts';
-import { ensureFolder, isRecordPath, markVaultFileChanged, readRecords, uniqueRecords, visibleFileRevision, type LedgerVault } from './repo/vault-records.ts';
-import { diskFileRevision, ledgerWithCommittedWorkout, unchangedRecords, type DiskFileStat, type RecordRevisions, type WorkoutSnapshot } from './repo/workout-snapshot.ts';
+import { ensureFolder, isRecordPath, readRecords, uniqueRecords, type LedgerVault } from './repo/vault-records.ts';
+import { diskFileRevision, ledgerWithCommittedWorkout, unchangedRecords, type StatDiskFile, type RecordRevisions, type WorkoutSnapshot } from './repo/workout-snapshot.ts';
 
 const workoutCreations = new WeakMap<LedgerVault, Promise<WorkoutFile>>();
 
 export class LedgerRepository {
   private readonly vault: LedgerVault;
   private readonly exercises: ExerciseRepository;
-  private readonly statHiddenWorkout?: (path: string) => Promise<DiskFileStat | undefined>;
+  private readonly statFile?: StatDiskFile;
   readonly root: string;
   private automaticCsvUpdate?: Promise<void>;
   private automaticCsvRequest?: 'fresh' | { snapshot: WorkoutSnapshot; saved: WorkoutFile };
 
-  constructor(vault: LedgerVault, root = journalFolder, statHiddenWorkout?: (path: string) => Promise<DiskFileStat | undefined>) {
+  constructor(vault: LedgerVault, root = journalFolder, statFile?: StatDiskFile) {
     this.vault = vault;
     this.root = normalizeJournalFolder(root);
     this.exercises = new ExerciseRepository(vault, this.root);
-    this.statHiddenWorkout = statHiddenWorkout;
+    this.statFile = statFile;
   }
 
-  read(): Promise<LedgerData> {
-    return this.readData();
+  read(options: { fresh?: boolean } = {}): Promise<LedgerData> {
+    return this.readData(options);
   }
 
   async readWorkoutSnapshot(): Promise<WorkoutSnapshot> {
     const revisions: RecordRevisions = new Map();
-    const data = await this.readData(revisions);
+    const data = await this.readData({ fresh: true, revisions });
     return { data, revisions };
   }
 
-  private async readData(revisions?: RecordRevisions): Promise<LedgerData> {
+  private async readData({ fresh = false, revisions }: { fresh?: boolean; revisions?: RecordRevisions }): Promise<LedgerData> {
     const issues: string[] = [];
     const workoutPaths = await this.workoutPaths();
+    const readText = async (path: string, file?: TFile | null): Promise<string> => {
+      if (revisions) revisions.set(path, await this.recordRevision(path).catch(() => undefined));
+      return fresh || !file ? this.vault.adapter.read(path) : this.vault.cachedRead(file);
+    };
     const [exercises, workouts] = await Promise.all([
-      this.exercises.read(issues, revisions),
+      this.exercises.read(issues, (file) => readText(file.path, file)),
       readRecords(workoutPaths, async (path) => {
-        const file = this.vault.getFileByPath(path);
-        if (revisions) revisions.set(path, await this.recordRevision(path, file).catch(() => undefined));
-        const text = file ? await this.vault.cachedRead(file) : await this.vault.adapter.read(path);
+        const text = await readText(path, fresh ? undefined : this.vault.getFileByPath(path));
         return { path, workout: parseWorkout(text) };
       }, issues),
     ]);
@@ -56,13 +58,7 @@ export class LedgerRepository {
   }
 
   readExercises(): Promise<ExerciseNote[]> {
-    return this.exercises.read();
-  }
-
-  markRecordChanged(path: string): void {
-    if (!isRecordPath(path, this.root, 'Exercises') && !isRecordPath(path, this.root, 'Workouts')) return;
-    const file = this.vault.getFileByPath(path);
-    if (file) markVaultFileChanged(file);
+    return this.exercises.read([], (file) => this.vault.adapter.read(file.path));
   }
 
   saveStarter(starter: Exercise): Promise<ExerciseNote> {
@@ -137,7 +133,7 @@ export class LedgerRepository {
         this.automaticCsvRequest = undefined;
         try {
           const data = request === 'fresh' ? undefined : await this.reuseWorkoutSnapshot(request.snapshot, request.saved);
-          await this.writeAutomaticCsv(data ?? await this.read());
+          await this.writeAutomaticCsv(data ?? await this.read({ fresh: true }));
         } catch (error: unknown) {
           if (!this.automaticCsvRequest) throw error;
         }
@@ -163,10 +159,9 @@ export class LedgerRepository {
     }
   }
 
-  private async recordRevision(path: string, file = this.vault.getFileByPath(path)): Promise<string | undefined> {
-    if (file) return visibleFileRevision(file);
-    // The public adapter stat has a creation time, which cannot detect hidden writes preserving mtime and size.
-    const stat = await this.statHiddenWorkout?.(path);
+  private async recordRevision(path: string): Promise<string | undefined> {
+    // Obsidian's public ctime is the creation time, which stays fixed on some external writes.
+    const stat = await this.statFile?.(path);
     if (stat?.isFile()) return diskFileRevision(stat);
   }
 

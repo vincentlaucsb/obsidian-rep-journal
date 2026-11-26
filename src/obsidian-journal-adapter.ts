@@ -1,5 +1,5 @@
 import { apply, isSupported } from '@oddbird/popover-polyfill/fn';
-import type { Vault } from 'obsidian';
+import type { TFile, Vault } from 'obsidian';
 import type { JournalAdapter } from '../standalone/app.ts';
 import { progressExercises } from './analytics.ts';
 import { readContextOptions, serializeExport, workoutContext } from './exports.ts';
@@ -9,11 +9,13 @@ import {
 } from './journal-workflow.ts';
 import { localDate, makeId, type WeightUnit } from './model.ts';
 import { DatedPlanRepository, isPlanYear, PlanPickerRepository } from './repo/plan-repository.ts';
-import { vaultFileRevision } from './repo/vault-records.ts';
+import { diskFileRevision, type StatDiskFile } from './repo/workout-snapshot.ts';
 import type { LedgerRepository } from './repository.ts';
 import { parseWorkoutPlan } from './workout-plan.ts';
 
-type JournalVault = Pick<Vault, 'getMarkdownFiles' | 'getFolderByPath' | 'getFileByPath' | 'cachedRead'>;
+type JournalVault = Pick<Vault, 'getMarkdownFiles' | 'getFolderByPath' | 'getFileByPath' | 'cachedRead'> & {
+  adapter: Pick<Vault['adapter'], 'read'>;
+};
 type JournalRepository = Pick<LedgerRepository, 'root' | 'read' | 'readExercises' | 'readWorkoutSnapshot' | 'saveWorkout' | 'saveExercise' | 'saveStarter' |
   'writeExport' | 'refreshAutomaticCsv'>;
 
@@ -22,11 +24,12 @@ export function createObsidianJournalAdapter(
   repository: JournalRepository,
   options: {
     vaultKey: string;
+    statFile?: StatDiskFile;
     weightUnit: () => WeightUnit;
     reportExportError: (error: unknown) => void;
     openExerciseNote: NonNullable<JournalAdapter['openExerciseNote']>;
   },
-): JournalAdapter & { invalidatePlanPicker(path: string, folder: boolean): void } {
+): JournalAdapter {
   let writes: Promise<unknown> = Promise.resolve();
   const plans = new DatedPlanRepository(repository.root);
   const planPicker = new PlanPickerRepository(repository.root);
@@ -39,10 +42,18 @@ export function createObsidianJournalAdapter(
     return pending;
   }
 
+  async function inspectPlan(file: TFile) {
+    const { path } = file;
+    const stat = await options.statFile?.(path).catch(() => undefined);
+    const disk = stat?.isFile() ? stat : undefined;
+    return {
+      size: disk?.size ?? file.stat.size,
+      revision: disk && diskFileRevision(disk),
+      read: () => vault.adapter.read(path),
+    };
+  }
+
   return {
-    invalidatePlanPicker: (path, folder) => {
-      if (isWorkoutPlanPath(folder ? `${path}/` : path, repository.root)) planPicker.invalidate(path, folder);
-    },
     async loadJournal() {
       const data = await repository.read();
       const plansFolder = vault.getFolderByPath(`${repository.root}/Plans`);
@@ -60,18 +71,22 @@ export function createObsidianJournalAdapter(
     async listPlans() {
       const exercises = await repository.readExercises();
       const paths = vault.getMarkdownFiles().map(({ path }) => path).filter((path) => isWorkoutPlanPath(path, repository.root));
-      return planPicker.read(paths, exercises, (path) => {
+      return planPicker.read(paths, exercises, async (path) => {
         const file = vault.getFileByPath(path);
-        if (!file || file.stat.size > maxPlanBytes) return;
-        return { revision: vaultFileRevision(file.stat), read: () => vault.cachedRead(file) };
+        if (!file) return;
+        const plan = await inspectPlan(file);
+        if (plan.size <= maxPlanBytes) return plan;
       });
     },
     async readPlan(path) {
       const note = vault.getFileByPath(path);
       if (!note || note.extension.toLowerCase() !== 'md') throw new Error('The workout plan note is no longer available.');
-      if (note.stat.size > maxPlanBytes) throw new Error('The plan is too large to open.');
-      const [markdown, data] = await Promise.all([vault.cachedRead(note), repository.read()]);
-      return parseWorkoutPlan(markdown, progressExercises(data));
+      const plan = await inspectPlan(note);
+      if (plan.size > maxPlanBytes) throw new Error('The plan is too large to open.');
+      const [markdown, exercises] = await Promise.all([plan.read(), repository.readExercises()]);
+      const result = parseWorkoutPlan(markdown, exercises);
+      if (result.plan) return result;
+      return parseWorkoutPlan(markdown, progressExercises(await repository.read({ fresh: true })));
     },
     makeSetId: makeId,
     saveSet(input, unit) {

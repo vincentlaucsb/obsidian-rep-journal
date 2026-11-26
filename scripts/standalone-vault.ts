@@ -39,11 +39,14 @@ async function existingVaultFile(root: string, path: string): Promise<string> {
   return actual;
 }
 
-export async function readStandalonePlan(root: string, path: string, data: LedgerData) {
+export async function readStandalonePlan(store: StandaloneVault, folder: string, path: string) {
   if (!/\.md$/i.test(path)) throw new Error('Choose a Markdown workout plan.');
-  const file = await existingVaultFile(root, path);
+  const file = await existingVaultFile(store.root, path);
   if ((await lstat(file)).size > maxPlanBytes) throw new Error('The plan is too large to open.');
-  return parseWorkoutPlan(await readFile(file, 'utf8'), progressExercises(data));
+  const [markdown, exercises] = await Promise.all([readFile(file, 'utf8'), readImportExercises(store.root, folder)]);
+  const result = parseWorkoutPlan(markdown, exercises);
+  if (result.plan) return result;
+  return parseWorkoutPlan(markdown, progressExercises((await store.read()).data));
 }
 
 async function listDatedPlanPaths(root: string, folder: string): Promise<string[]> {

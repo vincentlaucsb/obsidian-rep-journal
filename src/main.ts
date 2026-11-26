@@ -73,12 +73,14 @@ export default class RepJournalPlugin extends Plugin {
   }
 
   private createRepository(root: string): LedgerRepository {
-    const vault = this.app.vault;
-    const adapter = vault.adapter;
-    const statHiddenWorkout = Platform.isDesktop && adapter instanceof FileSystemAdapter
+    return new LedgerRepository(this.app.vault, root, this.desktopVaultStat());
+  }
+
+  private desktopVaultStat() {
+    const { adapter } = this.app.vault;
+    return Platform.isDesktop && adapter instanceof FileSystemAdapter
       ? (path: string) => require('node:fs/promises').lstat(adapter.getFullPath(path), { bigint: true })
       : undefined;
-    return new LedgerRepository(vault, root, statHiddenWorkout);
   }
 
   private createAdapter() {
@@ -88,6 +90,7 @@ export default class RepJournalPlugin extends Plugin {
     const vaultKey = vault.adapter instanceof FileSystemAdapter ? vault.adapter.getBasePath() : vault.getName();
     const adapter = createObsidianJournalAdapter(vault, repository, {
       vaultKey: repository.root === journalFolder ? `obsidian:${vaultKey}` : JSON.stringify(['obsidian', vaultKey, repository.root]),
+      statFile: this.desktopVaultStat(),
       weightUnit: () => this.weightUnit,
       reportExportError: (error) => { new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`); },
       openExerciseNote: (exercise) => { void this.openExerciseNote(exercise); },
@@ -173,21 +176,11 @@ export default class RepJournalPlugin extends Plugin {
       return !!root && (affectsExerciseNotes(file, root, path) ||
         (file instanceof TFolder ? affectsDatedPlanFolder(path, root) : !!datedPlanDate(path, root)));
     };
-    const invalidate = (file: TAbstractFile, path = file.path): void => {
-      const folder = file instanceof TFolder;
-      if (folder || /\.md$/i.test(path)) this.adapter?.invalidatePlanPicker(path, folder);
-      if (!folder) this.repository?.markRecordChanged(path);
-    };
-    const onChange = (file: TAbstractFile): void => {
-      invalidate(file);
-      if (affects(file)) refresh();
-    };
+    const onChange = (file: TAbstractFile): void => { if (affects(file)) refresh(); };
     this.registerEvent(vault.on('create', onChange));
     this.registerEvent(vault.on('modify', onChange));
     this.registerEvent(vault.on('delete', onChange));
     this.registerEvent(vault.on('rename', (file, oldPath) => {
-      invalidate(file, oldPath);
-      invalidate(file);
       if (affects(file) || affects(file, oldPath)) refresh();
     }));
     this.register(() => hostWindow.clearTimeout(timer));

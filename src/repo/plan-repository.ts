@@ -36,12 +36,12 @@ function planExerciseKey(exercises: readonly ExerciseChoice[]): string {
 }
 
 interface PlanFile {
-  revision: string;
+  revision?: string;
   read(): Promise<string>;
 }
 
 interface PickerEntry {
-  revision: string;
+  revision?: string;
   checksExercises: boolean;
   note?: PlanNote;
 }
@@ -54,14 +54,6 @@ export class PlanPickerRepository {
 
   constructor(root: string) {
     this.root = root;
-  }
-
-  invalidate(path: string, folder: boolean): void {
-    this.version++;
-    this.entries.delete(path);
-    if (folder) {
-      for (const entry of this.entries.keys()) if (entry.startsWith(`${path}/`)) this.entries.delete(entry);
-    }
   }
 
   async read(
@@ -79,7 +71,9 @@ export class PlanPickerRepository {
         const file = await inspect(path);
         if (!file) return;
         const cached = previous.get(path);
-        if (cached?.revision === file.revision && (sameExercises || !cached.checksExercises)) return { path, entry: cached };
+        if (file.revision !== undefined && cached?.revision === file.revision && (sameExercises || !cached.checksExercises)) {
+          return { path, entry: cached };
+        }
         const markdown = await file.read();
         const dated = Boolean(datedPlanDate(path, this.root));
         const checksExercises = dated || (/^ {0,3}##\s+\S/m.test(markdown) && /^ {0,3}###\s+\S/m.test(markdown));
@@ -91,7 +85,7 @@ export class PlanPickerRepository {
       for (const result of results) {
         if (result.status === 'fulfilled' && result.value) {
           const { path, entry } = result.value;
-          entries.set(path, entry);
+          if (entry.revision !== undefined) entries.set(path, entry);
           if (entry.note) notes.push(entry.note);
         }
       }

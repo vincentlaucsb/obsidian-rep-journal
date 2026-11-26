@@ -79,18 +79,18 @@ void test('native plan picker reuses both matches and misses and retries unreada
   const file = await vault.create(note, markdown);
   await vault.create(unrelated, '# Meeting notes\n');
   const adapter = createObsidianJournalAdapter(vault, repository, {
-    vaultKey: 'memory-vault', weightUnit: () => 'lb', reportExportError: () => undefined, openExerciseNote: () => undefined,
+    vaultKey: 'memory-vault', statFile: vault.diskStat, weightUnit: () => 'lb', reportExportError: () => undefined, openExerciseNote: () => undefined,
   });
   const reads: string[] = [];
   let fail = true;
-  const cachedRead = vault.cachedRead.bind(vault);
-  vault.cachedRead = (entry) => {
-    if (entry.path.startsWith('Templates/')) reads.push(entry.path);
-    if (entry.path === note && fail) {
+  const read = vault.adapter.read;
+  vault.adapter.read = (path) => {
+    if (path.startsWith('Templates/')) reads.push(path);
+    if (path === note && fail) {
       fail = false;
       return Promise.reject(new Error('Temporary read failure'));
     }
-    return cachedRead(entry);
+    return read(path);
   };
   assert.deepEqual(await adapter.listPlans(), []);
   assert.deepEqual(reads.splice(0), [note, unrelated]);
@@ -102,7 +102,6 @@ void test('native plan picker reuses both matches and misses and retries unreada
   const { mtime } = file.stat;
   await vault.adapter.write(note, markdown.replace('First', 'Other'));
   file.stat.mtime = mtime;
-  adapter.invalidatePlanPicker(note, false);
   assert.deepEqual(await adapter.listPlans(), [{ path: note, title: 'Other' }]);
   assert.deepEqual(reads.splice(0), [note]);
 
@@ -495,10 +494,7 @@ void test('native set saves reuse ledger bodies and validate hidden JSON changes
   const stats: string[] = [];
   const repository = new LedgerRepository(vault, undefined, async (path) => {
     stats.push(path);
-    const stat = await vault.adapter.stat(path);
-    if (!stat) return;
-    return { dev: 0n, ino: BigInt(stat.ctime), ctimeNs: BigInt(stat.mtime), mtimeNs: BigInt(stat.mtime),
-      size: BigInt(stat.size), isFile: () => true };
+    return vault.diskStat(path);
   });
   const exercise = await repository.saveExercise(details);
   const date = '2026-10-01';

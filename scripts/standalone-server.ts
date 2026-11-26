@@ -142,7 +142,7 @@ export async function startStandalone(vault: string, port = 4317, unit: WeightUn
     } else if (url.pathname === '/api/plans') {
       json(response, 200, await listStandalonePlans(root, folder, planPicker));
     } else if (url.pathname === '/api/plan') {
-      json(response, 200, await readStandalonePlan(root, url.searchParams.get('path') ?? '', (await store.read()).data));
+      json(response, 200, await readStandalonePlan(store, folder, url.searchParams.get('path') ?? ''));
     } else if (url.pathname === '/app.js') {
       const { outputFiles } = await build({
         entryPoints: [fileURLToPath(new URL('../standalone/app.ts', import.meta.url))],

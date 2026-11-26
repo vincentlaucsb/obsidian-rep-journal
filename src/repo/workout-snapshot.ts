@@ -11,6 +11,8 @@ export interface DiskFileStat {
   isFile(): boolean;
 }
 
+export type StatDiskFile = (path: string) => Promise<DiskFileStat | undefined>;
+
 export function diskFileRevision({ dev, ino, ctimeNs, mtimeNs, size }: DiskFileStat): string {
   return `${dev}:${ino}:${ctimeNs}:${mtimeNs}:${size}`;
 }

@@ -45,7 +45,7 @@ export function getFrontMatterInfo(content: string): FrontMatterInfo {
 }
 
 export class MemoryVault {
-  private readonly files = new Map<string, { text: string; file: TFile }>();
+  private readonly files = new Map<string, { text: string; file: TFile; changedAt: number }>();
   private readonly folders = new Map<string, TFolder>();
   private timestamp = 0;
 
@@ -76,6 +76,14 @@ export class MemoryVault {
   getFolderByPath(path: string): TFolder | null { return this.folders.get(path) ?? null; }
   getMarkdownFiles(): TFile[] { return [...this.files.values()].map(({ file }) => file).filter(({ extension }) => extension === 'md'); }
 
+  diskStat = async (path: string) => {
+    const entry = this.files.get(path);
+    if (!entry) return;
+    const { ctime, mtime } = entry.file.stat;
+    return { dev: 0n, ino: BigInt(ctime), ctimeNs: BigInt(entry.changedAt), mtimeNs: BigInt(mtime),
+      size: BigInt(Buffer.byteLength(entry.text)), isFile: () => true };
+  };
+
   async create(path: string, text: string): Promise<TFile> {
     if (this.files.has(path)) throw new Error('File exists');
     const folder = this.folders.get(this.parentPath(path));
@@ -83,7 +91,7 @@ export class MemoryVault {
     const file = new TFile(path, folder);
     file.stat = { ctime: ++this.timestamp, mtime: this.timestamp, size: Buffer.byteLength(text) };
     folder.children.push(file);
-    this.files.set(path, { text, file });
+    this.files.set(path, { text, file, changedAt: this.timestamp });
     return file;
   }
 
@@ -119,7 +127,7 @@ export class MemoryVault {
   modify(file: TFile, text: string): Promise<void> { return this.adapter.write(file.path, text); }
   process(file: TFile, transform: (text: string) => string): Promise<string> { return this.adapter.process(file.path, transform); }
 
-  private entry(path: string): { text: string; file: TFile } {
+  private entry(path: string): { text: string; file: TFile; changedAt: number } {
     const entry = this.files.get(path);
     if (!entry) throw new Error('File missing');
     return entry;
@@ -128,7 +136,8 @@ export class MemoryVault {
   private write(path: string, text: string): void {
     const entry = this.entry(path);
     entry.text = text;
-    entry.file.stat = { ...entry.file.stat, mtime: ++this.timestamp, size: Buffer.byteLength(text) };
+    entry.changedAt = ++this.timestamp;
+    entry.file.stat = { ...entry.file.stat, mtime: entry.changedAt, size: Buffer.byteLength(text) };
   }
 
   private parentPath(path: string): string { return path.slice(0, Math.max(0, path.lastIndexOf('/'))); }
