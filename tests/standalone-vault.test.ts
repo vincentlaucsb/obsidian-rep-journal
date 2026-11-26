@@ -4,6 +4,7 @@ import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { test, type TestContext } from 'node:test';
+import timers from 'node:timers/promises';
 import { stringify } from 'yaml';
 import { readImportVault } from '../scripts/import-vault.ts';
 import { editStandaloneWorkout, listStandalonePlans, refreshStandaloneCsv, saveStandaloneSet, type StandaloneVault } from '../scripts/standalone-vault.ts';
@@ -177,6 +178,12 @@ void test('standalone replacement retries sharing errors and checks the original
     const csv = await readFile(csvPath, 'utf8');
     assert.equal(csv, toCsv((await readImportVault(root, folder)).data));
 
+    const retryDelays: number[] = [];
+    context.mock.method(timers, 'setTimeout', (delay: number) => {
+      retryDelays.push(delay);
+      return Promise.resolve();
+    });
+    syncBuiltinESMExports();
     const outside = { ...workout, sets: [{ ...set, reps: 7 }] };
     const outsideText = JSON.stringify(outside);
     onRename = async (_source, target) => {
@@ -190,14 +197,16 @@ void test('standalone replacement retries sharing errors and checks the original
 
     onRename = () => Promise.reject(sharingError);
     renameMock.mock.resetCalls();
+    retryDelays.length = 0;
     await assert.rejects(edit(outside.sets[0], 8), (error) => error === sharingError);
-    assert.equal(renameMock.mock.callCount(), 5);
+    assert.equal(renameMock.mock.callCount(), 8);
+    assert.equal(retryDelays.reduce((total, delay) => total + delay, 0), 2060);
     assert.equal(await readFile(workoutPath, 'utf8'), outsideText);
     assert.equal(await readFile(csvPath, 'utf8'), csv);
     assert.deepEqual(await readdir(dirname(workoutPath)), [basename(workoutPath)]);
     assert.deepEqual(await readdir(dirname(csvPath)), [basename(csvPath)]);
   } finally {
-    renameMock.mock.restore();
+    context.mock.restoreAll();
     syncBuiltinESMExports();
   }
 });

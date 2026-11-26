@@ -106,7 +106,7 @@ export async function listStandalonePlans(root: string, journalFolder: string, r
 
 async function replaceVaultFile(file: string, original: Buffer, updated: string): Promise<void> {
   const temporary = join(dirname(file), `.rep-journal-edit-${randomUUID()}.tmp`);
-  const retryDelays = [20, 40, 80, 160];
+  const retryDelays = [20, 40, 80, 160, 320, 640, 800];
   await writeFile(temporary, updated, { flag: 'wx' });
   try {
     for (let attempt = 0; ; attempt++) {
