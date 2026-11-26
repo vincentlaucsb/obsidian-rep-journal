@@ -5,6 +5,19 @@ import { journalSettingsFile } from '../../src/journal-paths.ts';
 import { parseWorkout } from '../../src/model.ts';
 import { exerciseId, exerciseName, test } from './obsidian.ts';
 
+test('installs the bundled Garmin prompt from settings', async ({ obsidian: { page, vault } }) => {
+  const button = page.locator('.clickable-icon:has(.lucide-settings)').filter({ visible: true });
+  const [settings] = await Promise.all([page.context().waitForEvent('page'), button.click()]);
+  await settings.getByText('Rep Journal', { exact: true }).click();
+  await settings.getByRole('button', { name: 'Enable or repair' }).click();
+  const source = await readFile(join(import.meta.dirname, '../../prompts/rep-journal-garmin/SKILL.md'), 'utf8');
+  for (const dir of ['.agents', '.claude', '.opencode']) {
+    const path = join(vault, dir, 'skills/rep-journal-garmin/SKILL.md');
+    await expect.poll(async () => (await readFile(path, 'utf8').catch(() => '')).replace(/\r\n/g, '\n'))
+      .toContain(source.replace(/\r\n/g, '\n'));
+  }
+});
+
 test('renders plan Markdown and opens technique links relative to the plan note', async ({ obsidian: { page } }) => {
   const planFolder = 'Training';
   const source = [

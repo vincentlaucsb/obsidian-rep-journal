@@ -9,6 +9,8 @@ import { affectsExerciseNotes } from './repo/exercise-repository.ts';
 import { affectsDatedPlanFolder, datedPlanDate } from './repo/plan-repository.ts';
 import { LedgerRepository } from './repository.ts';
 import { defaultMeasurementSystem, isMeasurementSystem, type MeasurementSystem } from './units.ts';
+import { installGarminPrompt } from './garmin-prompt.ts';
+import garminPrompt from '../prompts/rep-journal-garmin/SKILL.md';
 
 const legacyView = 'set-ledger-workout-view';
 declare const require: (id: 'node:fs/promises') => typeof import('node:fs/promises');
@@ -249,6 +251,7 @@ export default class RepJournalPlugin extends Plugin {
 
 const measurementSetting = { name: 'Measurement system', desc: 'Sets default units for new sets, workout history, and estimated 1RM.' };
 const folderSetting = { name: 'Journal folder', desc: 'Path relative to the vault. Saving opens that journal in all workout log tabs.' };
+const garminSetting = { name: 'Garmin agent integration', desc: 'Install the Garmin sync prompt for local agents in this vault. For regular updates, give your agent access to a Garmin Connect Personal API key.' };
 
 class RepJournalSettings extends PluginSettingTab {
   constructor(private readonly journal: RepJournalPlugin) {
@@ -259,6 +262,7 @@ class RepJournalSettings extends PluginSettingTab {
     return [
       { ...folderSetting, render: (setting) => { this.addJournalFolderControl(setting); } },
       { ...measurementSetting, render: (setting) => { this.addMeasurementSystemControl(setting); } },
+      ...(Platform.isDesktop ? [{ ...garminSetting, render: (setting: Setting) => { this.addGarminControl(setting); } }] : []),
     ];
   }
 
@@ -266,6 +270,27 @@ class RepJournalSettings extends PluginSettingTab {
     this.containerEl.empty();
     this.addJournalFolderControl(new Setting(this.containerEl).setName(folderSetting.name).setDesc(folderSetting.desc));
     this.addMeasurementSystemControl(new Setting(this.containerEl).setName(measurementSetting.name).setDesc(measurementSetting.desc));
+    if (Platform.isDesktop) this.addGarminControl(new Setting(this.containerEl).setName(garminSetting.name).setDesc(garminSetting.desc));
+  }
+
+  private addGarminControl(setting: Setting): void {
+    setting.addButton((button) => button.setButtonText('Enable or repair').onClick(async () => {
+      button.setDisabled(true);
+      try {
+        const adapter = this.app.vault.adapter;
+        if (Platform.isDesktop && adapter instanceof FileSystemAdapter) {
+          const preserved = await installGarminPrompt(require('node:fs/promises'), adapter.getBasePath(), garminPrompt);
+          if (preserved.length) new Notice('Kept existing files or links at ' + preserved.join(', ') + '. Check these locations before using the Garmin prompt.', 12000);
+          else new Notice('Garmin prompt ready. Start a new agent chat at the vault root.');
+        } else {
+          new Notice('Open a local desktop vault to install the prompt.');
+        }
+      } catch (error: unknown) {
+        new Notice(`Could not install the Garmin prompt. ${errorMessage(error)}`);
+      } finally {
+        button.setDisabled(false);
+      }
+    }));
   }
 
   private addJournalFolderControl(setting: Setting): void {

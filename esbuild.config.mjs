@@ -17,7 +17,7 @@ const options = {
   format: 'cjs',
   target: 'es2020',
   external: ['obsidian', 'node:fs/promises'],
-  loader: { '.wasm': 'binary' },
+  loader: { '.wasm': 'binary', '.md': 'text' },
   plugins: [sveltePlugin],
   // The npm package is also shipped as part of the single-file Obsidian plugin.
   banner: { js: `/*! svgplot, OddBird Popover, Svelte and bundled dependencies\n${[...notices, popoverNotice, ...svelteNotices].join('\n').replaceAll('*/', '* /')}\n*/` },

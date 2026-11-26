@@ -40,6 +40,8 @@ Choose **Menu → Plans** to review and start a plan. Use **Start** on the plan 
 
 Use the [command-line JSON importer](docs/IMPORT.md) to bring in workouts from FitNotes or another tracker. The importer validates the file and reports errors in JSON so an LLM can help correct them.
 
+For Garmin runs and MTB rides, select **Settings → Rep Journal → Garmin agent integration → Enable or repair** on desktop. For regular updates, make a Garmin Connect Personal API key available to your local agent. Start a fresh chat at the vault root and ask “Preview last month's Garmin runs and MTB rides in my journal.” The [freestanding prompt](prompts/rep-journal-garmin/SKILL.md) also accepts a Garmin activities CSV. [Setup and example requests](docs/IMPORT.md#garmin-connect)
+
 ## Data and sync
 
 Choose **Measurement system** in **Obsidian Settings → Rep Journal** or **Menu → Settings** in the standalone app. The two hosts share the saved setting. **Imperial** uses pounds, miles, and feet, and **Metric** uses kilograms, kilometers, and meters. The setting controls new entries and history display. In an exercise editor, choose a specific unit for weight, distance, or elevation gain, or select **Use journal default**. For example, Rowing uses meters by default. Existing sets keep the value and unit originally recorded. The set editor shows those original units, and CSV and JSON exports preserve them.

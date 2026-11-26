@@ -2,6 +2,16 @@
 
 Use the command-line importer with Node 22.18 or later. FitNotes and other workout exports can be converted into the same JSON format. The conversion can run in an LLM of your choice, and Rep Journal validates the result locally.
 
+## Garmin Connect
+
+1. On Obsidian desktop, open **Settings → Rep Journal → Garmin agent integration** and select **Enable or repair**. This installs the bundled prompt in the vault's Codex, Claude Code, and OpenCode skill directories. Use the same button after a plugin update or to restore a missing copy. It preserves edited prompts and linked directories.
+2. For regular updates, open **Garmin Connect web → Profile & Account → Settings → Personal API Key → Create Key**. Store the key in your local credential manager and make it available to the agent process as `GARMIN_PERSONAL_API_KEY`. The agent can use that key until it expires to obtain fresh access tokens. Each token lasts up to 24 hours. [Garmin Personal API setup](https://developer.garmin.com/gc-developer-program/personal/personal-faq/)
+3. Start a fresh local agent chat at the vault root. Give it the path to your Rep Journal checkout with Node 22.18+ and its npm dependencies installed. It will ask for the csvzall CLI if needed. For a one-time offline import, supply a Garmin activities CSV. A standalone user can paste the same [Garmin prompt](../prompts/rep-journal-garmin/SKILL.md) into a chat.
+
+- “Preview my Garmin Connect runs and mountain bike rides for October 2026 in this vault.”
+- “Import the runs and MTB rides from this Garmin activities CSV. Show me what was added and what was already logged.”
+- “Apply the Garmin import we just previewed.”
+
 ## Import workflow
 
 1. Get the vault’s exercise catalog. It includes existing exercise IDs, searchable aliases, and available starter exercises.
