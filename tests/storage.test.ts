@@ -78,8 +78,10 @@ void test('native plan picker reuses both matches and misses and retries unreada
   const markdown = '# First\n\n## Main\n\n### Bench\n';
   const file = await vault.create(note, markdown);
   await vault.create(unrelated, '# Meeting notes\n');
+  let statAvailable = true;
   const adapter = createObsidianJournalAdapter(vault, repository, {
-    vaultKey: 'memory-vault', statFile: vault.diskStat, weightUnit: () => 'lb', reportExportError: () => undefined, openExerciseNote: () => undefined,
+    vaultKey: 'memory-vault', weightUnit: () => 'lb', reportExportError: () => undefined, openExerciseNote: () => undefined,
+    statFile: (path) => statAvailable ? vault.diskStat(path) : Promise.resolve(undefined),
   });
   const reads: string[] = [];
   let fail = true;
@@ -116,6 +118,12 @@ void test('native plan picker reuses both matches and misses and retries unreada
   vault.delete(renamed);
   assert.deepEqual(await adapter.listPlans(), []);
   assert.equal(reads.length, 0);
+
+  statAvailable = false;
+  assert.deepEqual(await adapter.listPlans(), []);
+  await vault.adapter.write(unrelated, markdown);
+  assert.deepEqual(await adapter.listPlans(), [{ path: unrelated, title: 'First' }]);
+  assert.deepEqual(reads, [unrelated, unrelated]);
 });
 
 void test('the native workout log uses the vault repository without writing on startup', async () => {

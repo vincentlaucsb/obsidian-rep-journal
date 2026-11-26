@@ -1,6 +1,8 @@
+import type { Buffer } from 'node:buffer';
 import { randomUUID } from 'node:crypto';
 import { lstat, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { setTimeout as wait } from 'node:timers/promises';
 import { parseDocument } from 'yaml';
 import { progressExercises } from '../src/analytics.ts';
 import { readCatalogExercise } from '../src/catalog.ts';
@@ -102,12 +104,23 @@ export async function listStandalonePlans(root: string, journalFolder: string, r
   });
 }
 
-async function replaceVaultFile(file: string, original: string, updated: string): Promise<void> {
+async function replaceVaultFile(file: string, original: Buffer, updated: string): Promise<void> {
   const temporary = join(dirname(file), `.rep-journal-edit-${randomUUID()}.tmp`);
+  const retryDelays = [20, 40, 80, 160];
   await writeFile(temporary, updated, { flag: 'wx' });
   try {
-    if (await readFile(file, 'utf8') !== original) throw new Error('The file changed. Refresh and try again.');
-    await rename(temporary, file);
+    for (let attempt = 0; ; attempt++) {
+      if (!(await readFile(file)).equals(original)) throw new Error('The file changed. Refresh and try again.');
+      try {
+        await rename(temporary, file);
+        return;
+      } catch (error: unknown) {
+        const delay = retryDelays[attempt];
+        // Windows can briefly deny a rename while another process holds the file open.
+        if (delay === undefined || !hasErrorCode(error, 'EBUSY', 'EPERM', 'EACCES')) throw error;
+        await wait(delay);
+      }
+    }
   } finally {
     await unlink(temporary).catch(() => undefined);
   }
@@ -115,8 +128,8 @@ async function replaceVaultFile(file: string, original: string, updated: string)
 
 async function applyToWorkout(root: string, saved: WorkoutFile, change: WorkoutChange): Promise<WorkoutFile> {
   const file = await existingVaultFile(root, saved.path);
-  const original = await readFile(file, 'utf8');
-  const workout = parseWorkout(original);
+  const original = await readFile(file);
+  const workout = parseWorkout(original.toString('utf8'));
   if (workout.id !== saved.workout.id || workout.date !== saved.workout.date || workout.createdAt !== saved.workout.createdAt) {
     throw new Error('The session changed. Refresh and try again.');
   }
@@ -150,8 +163,8 @@ async function writeAutomaticCsv(vault: Awaited<ReturnType<typeof readImportVaul
     await writeNewFile(join(root, path), text);
     return;
   }
-  const previous = await readFile(file, 'utf8');
-  if (text !== previous) await replaceVaultFile(file, previous, text);
+  const previous = await readFile(file);
+  if (text !== previous.toString('utf8')) await replaceVaultFile(file, previous, text);
 }
 
 export function refreshStandaloneCsv(store: StandaloneVault): Promise<void> {
@@ -261,7 +274,8 @@ export function editStandaloneExercise(store: StandaloneVault, input: unknown, u
     if (!original) return writeNewExercise(vault, exercise);
     const { path, ...before } = original;
     const file = await existingVaultFile(vault.root, path);
-    const text = await readFile(file, 'utf8');
+    const originalBytes = await readFile(file);
+    const text = originalBytes.toString('utf8');
     const head = exerciseNoteHeader(text);
     if (!head) throw new Error('The exercise changed. Refresh and try again.');
     const yaml = parseDocument(head[1]);
@@ -272,7 +286,7 @@ export function editStandaloneExercise(store: StandaloneVault, input: unknown, u
     const openingEnd = head[0].indexOf('\n') + 1;
     const closingStart = head[0].lastIndexOf('\n') + 1;
     const frontmatter = head[0].includes('\r\n') ? yaml.toString().replace(/\n/g, '\r\n') : yaml.toString();
-    await replaceVaultFile(file, text, text.slice(0, openingEnd) + frontmatter + text.slice(closingStart));
+    await replaceVaultFile(file, originalBytes, text.slice(0, openingEnd) + frontmatter + text.slice(closingStart));
     return { ...exercise, path };
   });
 }

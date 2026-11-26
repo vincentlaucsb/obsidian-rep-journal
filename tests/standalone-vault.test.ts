@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import fs, { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { test, type TestContext } from 'node:test';
@@ -136,4 +137,66 @@ void test('standalone workout changes reuse the validated ledger and refresh whe
   await refreshStandaloneCsv(store);
   assert.equal(reads, 7);
   assert.equal(await readFile(csvPath, 'utf8'), toCsv((await readImportVault(root, folder)).data));
+});
+
+void test('standalone replacement retries sharing errors and checks the original bytes again', async (context) => {
+  const { root } = await testVault(context);
+  const date = '2026-10-01';
+  const set: WorkoutSet = { id: makeId(), exerciseId: exercise.id, exerciseName: exercise.name, reps: 5,
+    load: { mode: 'weight', value: 60, unit: 'lb' }, warmup: false };
+  const workout = changeWorkout(createWorkout(date), { kind: 'add', set });
+  const path = join(root, folder, 'Workouts', `${date}.json`);
+  await mkdir(dirname(path));
+  await writeFile(path, JSON.stringify(workout));
+  const store = { root, read: () => readImportVault(root, folder) };
+  await refreshStandaloneCsv(store);
+  const workoutPath = await realpath(path);
+  const csvPath = await realpath(join(root, folder, 'Exports', 'rep-journal.csv'));
+  const edit = (original: WorkoutSet, reps: number) => editStandaloneWorkout(store, {
+    date, workoutId: workout.id, change: { kind: 'edit', original, values: { weight: 60, reps } },
+  }, date, (error) => assert.equal(error, undefined));
+
+  const sharingError = Object.assign(new Error('File is open in another process'), { code: 'EPERM' });
+  const actualRename = rename;
+  const attempts = new Map<string, number>();
+  let onRename: typeof rename = async (source, target) => {
+    const file = String(target);
+    const count = attempts.get(file) ?? 0;
+    attempts.set(file, count + 1);
+    if (count === 0) throw sharingError;
+    return actualRename(source, target);
+  };
+  const renameMock = context.mock.method(fs, 'rename', (source, target) => onRename(source, target));
+  syncBuiltinESMExports();
+  try {
+    const saved = await edit(set, 6);
+    assert.ok((attempts.get(workoutPath) ?? 0) >= 2);
+    assert.ok((attempts.get(csvPath) ?? 0) >= 2);
+    assert.equal(saved.workout.sets[0].reps, 6);
+    const csv = await readFile(csvPath, 'utf8');
+    assert.equal(csv, toCsv((await readImportVault(root, folder)).data));
+
+    const outside = { ...workout, sets: [{ ...set, reps: 7 }] };
+    const outsideText = JSON.stringify(outside);
+    onRename = async (_source, target) => {
+      await writeFile(target, outsideText);
+      throw sharingError;
+    };
+    renameMock.mock.resetCalls();
+    await assert.rejects(edit(saved.workout.sets[0], 8), /The file changed\. Refresh and try again\./);
+    assert.equal(renameMock.mock.callCount(), 1);
+    assert.equal(await readFile(workoutPath, 'utf8'), outsideText);
+
+    onRename = () => Promise.reject(sharingError);
+    renameMock.mock.resetCalls();
+    await assert.rejects(edit(outside.sets[0], 8), (error) => error === sharingError);
+    assert.equal(renameMock.mock.callCount(), 5);
+    assert.equal(await readFile(workoutPath, 'utf8'), outsideText);
+    assert.equal(await readFile(csvPath, 'utf8'), csv);
+    assert.deepEqual(await readdir(dirname(workoutPath)), [basename(workoutPath)]);
+    assert.deepEqual(await readdir(dirname(csvPath)), [basename(csvPath)]);
+  } finally {
+    renameMock.mock.restore();
+    syncBuiltinESMExports();
+  }
 });
