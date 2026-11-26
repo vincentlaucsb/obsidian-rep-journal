@@ -121,10 +121,10 @@ void test('standalone workout changes reuse the validated ledger and refresh whe
   outside = () => writeFile(historicalPath, JSON.stringify({ ...historical, sets: [{ ...set, reps: 7 }] }));
   await edit('First', 'Second');
   assert.equal(reads, 4);
+  assert.deepEqual(errors, []);
   const complete = await readFile(csvPath, 'utf8');
   assert.match(complete, /,7,"weight",60,"lb",/);
   assert.equal(complete, toCsv((await readImportVault(root, folder)).data));
-  assert.deepEqual(errors, []);
 
   const corrupt = join(root, folder, 'Workouts/broken.json');
   outside = () => writeFile(corrupt, '{');
@@ -166,7 +166,8 @@ void test('standalone replacement retries sharing errors and checks the original
     if (count === 0) throw sharingError;
     return actualRename(source, target);
   };
-  const renameMock = context.mock.method(fs, 'rename', (source, target) => onRename(source, target));
+  const mockRename: typeof rename = (source, target) => onRename(source, target);
+  const renameMock = context.mock.method(fs, 'rename', mockRename);
   syncBuiltinESMExports();
   try {
     const saved = await edit(set, 6);
