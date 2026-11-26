@@ -1,13 +1,17 @@
+import { convertDistance } from './units.ts';
+
 const LEGACY_SCHEMA_VERSION = 1;
 export const SCHEMA_VERSION = 2;
 
 export type WeightUnit = 'lb' | 'kg';
 export type LoadMode = 'weight' | 'bodyweight' | 'added' | 'assistance';
 
-export const measurements = { weight: 'Weight', reps: 'Reps', time: 'Time', distance: 'Distance' } as const;
+export const measurements = { weight: 'Weight', reps: 'Reps', time: 'Time', distance: 'Distance', elevationGain: 'Elevation gain' } as const;
 export type Measurement = keyof typeof measurements;
 export const distanceUnits = ['m', 'km', 'mi', 'yd', 'ft'] as const;
 export type DistanceUnit = typeof distanceUnits[number];
+export const elevationUnits = ['m', 'ft'] as const;
+export type ElevationUnit = typeof elevationUnits[number];
 export const tagGroups = {
   region: 'Body region', role: 'Training role', muscles: 'Muscle group',
   activity: 'Activity type', movement: 'Movement pattern', custom: 'Ungrouped',
@@ -22,6 +26,11 @@ export interface ExerciseTag {
 export interface SetDistance {
   value: number;
   unit: DistanceUnit;
+}
+
+export interface SetElevationGain {
+  value: number;
+  unit: ElevationUnit;
 }
 
 export type SetLoad = { mode: 'bodyweight' } | {
@@ -39,13 +48,13 @@ export interface ExerciseDetails {
   archived: boolean;
   measurements?: Measurement[];
   distanceUnit?: DistanceUnit;
+  elevationUnit?: ElevationUnit;
   tags?: ExerciseTag[];
 }
 
 export interface Exercise extends ExerciseDetails {
   id: string;
   measurements: Measurement[];
-  distanceUnit: DistanceUnit;
   tags: ExerciseTag[];
 }
 
@@ -66,6 +75,7 @@ export interface WorkoutSet {
   load?: SetLoad;
   durationSeconds?: number;
   distance?: SetDistance;
+  elevationGain?: SetElevationGain;
   warmup: boolean;
 }
 
@@ -148,6 +158,15 @@ export function isDistanceUnit(value: unknown): value is DistanceUnit {
   return distanceUnits.some((unit) => value === unit);
 }
 
+export function isElevationUnit(value: unknown): value is ElevationUnit {
+  return value === 'm' || value === 'ft';
+}
+
+export function isElevationGain(value: unknown): value is SetElevationGain {
+  return isRecord(value) && isElevationUnit(value.unit) && typeof value.value === 'number' &&
+    Number.isFinite(value.value) && value.value >= 0;
+}
+
 function isMeasurement(value: unknown): value is Measurement {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(measurements, value);
 }
@@ -198,6 +217,7 @@ export function setMeasurements(set: WorkoutSet): Measurement[] {
   if (set.reps !== undefined) tracked.push('reps');
   if (set.durationSeconds !== undefined) tracked.push('time');
   if (set.distance !== undefined) tracked.push('distance');
+  if (set.elevationGain !== undefined) tracked.push('elevationGain');
   return tracked;
 }
 
@@ -219,17 +239,19 @@ function isSet(value: unknown): value is WorkoutSet {
     (value.distance === undefined ||
       (isRecord(value.distance) && isDistanceUnit(value.distance.unit) && typeof value.distance.value === 'number' &&
         Number.isFinite(value.distance.value) && value.distance.value > 0)) &&
+    (value.elevationGain === undefined || isElevationGain(value.elevationGain)) &&
     (value.reps !== undefined || (isRecord(value.load) && value.load.mode !== 'bodyweight') ||
-      value.durationSeconds !== undefined || value.distance !== undefined);
+      value.durationSeconds !== undefined || value.distance !== undefined || value.elevationGain !== undefined);
 }
 
 function fitsLegacySchema(set: WorkoutSet): boolean {
-  return set.reps !== undefined && set.load !== undefined && set.durationSeconds === undefined && set.distance === undefined;
+  return set.reps !== undefined && set.load !== undefined && set.durationSeconds === undefined && set.distance === undefined &&
+    set.elevationGain === undefined;
 }
 
 export function validateSet(set: WorkoutSet): WorkoutSet {
   if (!isSet(set)) {
-    throw new Error('Enter valid measurements. Reps must be a whole number from 1 to 1000. Time and distance must be positive.');
+    throw new Error('Enter valid measurements. Reps must be a whole number from 1 to 1000. Time and distance must be positive. Elevation gain must be zero or greater.');
   }
   return set;
 }
@@ -303,7 +325,8 @@ export function exerciseFrontmatter(exercise: ExerciseDetails & { id: string }):
     weight_unit: exercise.unit,
     archived: exercise.archived,
     exercise_measurements: exercise.measurements ?? (exercise.loadMode === 'bodyweight' ? ['reps'] : ['weight', 'reps']),
-    distance_unit: exercise.distanceUnit ?? 'm',
+    ...(exercise.distanceUnit && { distance_unit: exercise.distanceUnit }),
+    ...(exercise.elevationUnit && { elevation_unit: exercise.elevationUnit }),
     exercise_tags: (exercise.tags ?? []).map(({ group, name }) => `${group}/${name}`),
   };
 }
@@ -318,9 +341,11 @@ export function readExercise(value: unknown): Exercise | null {
   const equipment: unknown = value.equipment ?? '';
   const archived: unknown = value.archived ?? false;
   const tracked: unknown = value.exercise_measurements ?? (value.load_mode === 'bodyweight' ? ['reps'] : ['weight', 'reps']);
-  const distanceUnit: unknown = value.distance_unit ?? 'm';
+  const distanceUnit = value.distance_unit ?? undefined;
+  const elevationUnit = value.elevation_unit ?? undefined;
   if (!Array.isArray(aliases) || !aliases.every(isName) || typeof equipment !== 'string' || typeof archived !== 'boolean' ||
-      !isDistanceUnit(distanceUnit) || !Array.isArray(tracked) || !tracked.length || !tracked.every(isMeasurement)) {
+      (distanceUnit !== undefined && !isDistanceUnit(distanceUnit)) || (elevationUnit !== undefined && !isElevationUnit(elevationUnit)) ||
+      !Array.isArray(tracked) || !tracked.length || !tracked.every(isMeasurement)) {
     throw new Error('Invalid or unsupported exercise properties.');
   }
   return {
@@ -332,13 +357,24 @@ export function readExercise(value: unknown): Exercise | null {
     unit: value.weight_unit,
     archived,
     measurements: [...new Set(tracked)],
-    distanceUnit,
+    ...(distanceUnit && { distanceUnit }),
+    ...(elevationUnit && { elevationUnit }),
     tags: readTags(value.exercise_tags ?? []),
   };
 }
 
-export function describeSet(set: WorkoutSet): string {
-  const { load, reps, durationSeconds, distance } = set;
+export function describeDistance(distance: SetDistance, preferredUnit?: DistanceUnit): string {
+  if (!preferredUnit) return `${distance.value} ${distance.unit}`;
+  return `${Number(convertDistance(distance.value, distance.unit, preferredUnit).toFixed(2))} ${preferredUnit}`;
+}
+
+export function describeElevationGain(elevation: SetElevationGain, preferredUnit?: ElevationUnit): string {
+  const amount = preferredUnit ? Math.round(convertDistance(elevation.value, elevation.unit, preferredUnit)) : elevation.value;
+  return `${amount} ${preferredUnit ?? elevation.unit} elevation gain`;
+}
+
+export function describeSet(set: WorkoutSet, exercise?: Pick<Exercise, 'distanceUnit' | 'elevationUnit'>): string {
+  const { load, reps, durationSeconds, distance, elevationGain } = set;
   const parts: string[] = [];
   if (reps !== undefined) parts.push(`${reps} ${reps === 1 ? 'rep' : 'reps'}`);
   if (load && load.mode !== 'bodyweight') {
@@ -348,7 +384,8 @@ export function describeSet(set: WorkoutSet): string {
     else parts.push(amount);
   }
   if (durationSeconds !== undefined) parts.push(formatDuration(durationSeconds));
-  if (distance) parts.push(`${distance.value} ${distance.unit}`);
+  if (distance) parts.push(describeDistance(distance, exercise?.distanceUnit));
+  if (elevationGain) parts.push(describeElevationGain(elevationGain, exercise?.elevationUnit));
   return parts.join(' · ');
 }
 

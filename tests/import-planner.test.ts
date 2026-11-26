@@ -109,6 +109,33 @@ void test('exercise catalog keeps historical IDs and excludes overlapping starte
   assert.equal(missing.workouts[0].sets[0].exerciseId, exerciseId);
 });
 
+void test('elevation gain imports preserve zero, unit and precision for new and existing exercises', async () => {
+  const input = {
+    exercises: [{ name: 'Mountain Biking', distanceUnit: 'mi', elevationUnit: 'ft' }],
+    workouts: [{ id: workoutId, date, sets: [
+      { exerciseName: 'Mountain Biking', distance: { value: 7415.126, unit: 'm' }, elevationGain: { value: 345.123, unit: 'm' } },
+      { exerciseName: 'Mountain Biking', elevationGain: { value: 0, unit: 'ft' } },
+    ] }],
+  };
+  const plan = await planWorkoutImport(input, empty);
+  assert.deepEqual(plan.issues, []);
+  assert.partialDeepStrictEqual(plan.exercises, [{ measurements: ['distance', 'elevationGain'], distanceUnit: 'mi', elevationUnit: 'ft' }]);
+  const [workout] = plan.workouts;
+  assert.equal(workout.schemaVersion, 2);
+  assert.deepEqual(workout.sets.map(({ elevationGain }) => elevationGain), [{ value: 345.123, unit: 'm' }, { value: 0, unit: 'ft' }]);
+  const data = { ...empty, exercises: [{ ...plan.exercises[0], path: 'Exercises/Mountain Biking.md' }],
+    workouts: [{ path: 'Workouts/ride.json', workout }] };
+  assert.deepEqual((await planWorkoutImport(input, data)).skippedWorkoutIds, [workoutId]);
+
+  const bad = await planWorkoutImport(oneWorkout([
+    { exerciseName: 'Mountain Biking', elevationGain: { value: -1, unit: 'yd' } },
+  ]), data);
+  assert.deepEqual(bad.issues.map(({ code, path }) => [code, path]), [
+    ['INVALID_ELEVATION_UNIT', 'workouts[0].sets[0].elevationGain.unit'],
+    ['INVALID_ELEVATION_VALUE', 'workouts[0].sets[0].elevationGain.value'],
+  ]);
+});
+
 void test('repeated IDs distinguish exact replays, conflicts, and separate explicit workouts', async () => {
   const sets = [{ id: setId, exerciseName: 'Push-up', reps: 5 }];
   const input = oneWorkout(sets, { id: workoutId });

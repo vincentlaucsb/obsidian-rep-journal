@@ -5,3 +5,4 @@
 - Verify Obsidian cache assumptions in the installed-host fixture. A sync tool can replace a file with same-length content and preserve its modification time. In that case Obsidian can retain old bytes in `cachedRead` and suppress the modify event.
 - Keep navigation and screen disposal in `mountJournal`. Give an extracted screen the operations it uses, and check what happens if the user navigates away or edits a draft while a request is pending.
 - The standalone server, import CLI, and unit tests run TypeScript directly in Node. Use erasable TypeScript syntax in their import graphs and exercise the Node entry point when moving code shared with the bundled plugin.
+- Round measurements for display only. Preserve recorded units and precision when editing, importing, backfilling, or exporting. Test a read-only preview and a no-op retry through the CLI after changing a backfill.

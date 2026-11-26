@@ -1,13 +1,16 @@
+import type { Buffer } from 'node:buffer';
 import { constants } from 'node:fs';
-import { copyFile, link, lstat, mkdir, open, readFile, readdir, realpath, unlink } from 'node:fs/promises';
+import { copyFile, link, lstat, mkdir, open, readFile, readdir, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { hostname } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import process from 'node:process';
+import { setTimeout as wait } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { parse, stringify } from 'yaml';
 import { readCatalogExercise } from '../src/catalog.ts';
 import { appendExerciseGuides } from '../src/exercise-guides.ts';
+import { automaticCsvFilename, toCsv } from '../src/exports.ts';
 import { exerciseFilename, journalFolder, journalSettingsFile, nextWorkoutSession, normalizeJournalFolder, parseJournalFolder, workoutFilename } from '../src/journal-paths.ts';
 import {
   compareWorkouts, errorMessage, exerciseFrontmatter, isRecord, parseWorkout, readExercise,
@@ -16,7 +19,7 @@ import {
 import { diskFileRevision, unchangedRecords, type RecordRevisions } from '../src/repo/workout-snapshot.ts';
 import { type ImportIssue, type WorkoutImportPlan } from '../src/workout-import.ts';
 
-interface ImportVault {
+export interface ImportVault {
   root: string;
   folder: string;
   data: LedgerData;
@@ -30,6 +33,53 @@ interface WrittenRecords {
 
 export function hasErrorCode(error: unknown, ...codes: string[]): boolean {
   return isRecord(error) && typeof error.code === 'string' && codes.includes(error.code);
+}
+
+export function isInside(root: string, path: string): boolean {
+  const remainder = relative(root, path);
+  return remainder !== '' && remainder !== '..' && !remainder.startsWith('..' + sep) && !isAbsolute(remainder);
+}
+
+export async function existingVaultFile(root: string, path: string): Promise<string> {
+  if (!path || path.includes('\\') || path.startsWith('/') || path.split('/').some((part) => !part || part === '.' || part === '..' || part.startsWith('.'))) {
+    throw new Error('Choose a file inside the vault.');
+  }
+  const candidate = resolve(root, path);
+  if (!isInside(root, candidate) || !(await lstat(candidate)).isFile()) throw new Error('Choose a file inside the vault.');
+  const actual = await realpath(candidate);
+  if (!isInside(root, actual)) throw new Error('Choose a file inside the vault.');
+  return actual;
+}
+
+export class VaultFileChanged extends Error {
+  constructor() {
+    super('The file changed. Refresh and try again.');
+  }
+}
+
+export async function replaceVaultFile(file: string, original: Buffer, updated: string): Promise<void> {
+  const temporary = join(dirname(file), `.rep-journal-edit-${randomUUID()}.tmp`);
+  const retryDelays = [20, 40, 80, 160, 320, 640, 800];
+  await writeFile(temporary, updated, { flag: 'wx' });
+  try {
+    for (let attempt = 0; ; attempt++) {
+      const stat = await lstat(file).catch((error: unknown) => {
+        if (!hasErrorCode(error, 'ENOENT')) throw error;
+      });
+      if (!stat?.isFile() || !(await readFile(file)).equals(original)) throw new VaultFileChanged();
+      try {
+        await rename(temporary, file);
+        return;
+      } catch (error: unknown) {
+        const delay = retryDelays[attempt];
+        // Windows can briefly deny a rename while another process holds the file open.
+        if (delay === undefined || !hasErrorCode(error, 'EBUSY', 'EPERM', 'EACCES')) throw error;
+        await wait(delay);
+      }
+    }
+  } finally {
+    await unlink(temporary).catch(() => undefined);
+  }
 }
 
 async function directoryExists(path: string): Promise<boolean> {
@@ -293,6 +343,22 @@ export async function ensureDirectory(root: string, folder: string, section: str
       if (!hasErrorCode(error, 'EEXIST') || !await directoryExists(absolute)) throw error;
     }
   }
+}
+
+export async function writeAutomaticCsv({ root, folder, data }: ImportVault): Promise<void> {
+  const text = toCsv(data);
+  await ensureDirectory(root, folder, 'Exports');
+  const path = `${folder}/Exports/${automaticCsvFilename}`;
+  const file = await existingVaultFile(root, path).catch((error: unknown) => {
+    if (hasErrorCode(error, 'ENOENT')) return undefined;
+    throw error;
+  });
+  if (!file) {
+    await writeNewFile(join(root, path), text);
+    return;
+  }
+  const previous = await readFile(file);
+  if (text !== previous.toString('utf8')) await replaceVaultFile(file, previous, text);
 }
 
 export async function writeImportVault(vault: ImportVault, plan: WorkoutImportPlan): Promise<{

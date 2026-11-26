@@ -180,11 +180,11 @@ void test('CSV has one ordered set per row and protects spreadsheet formulas; JS
   ledger.exercises[0] = { ...exercise, name: '=1+1, "quoted"' };
   const [header, first, second, end] = toCsv(ledger).split('\r\n');
   assert.match(header, /set_id,set_order,exercise_id/);
-  assert.match(header, /,warmup,duration_seconds,distance_value,distance_unit$/);
+  assert.match(header, /,warmup,duration_seconds,distance_value,distance_unit,elevation_gain_value,elevation_gain_unit$/);
   assert.ok(first.includes(`"${quote.id}",1,`));
   assert.ok(first.includes(`"'=1+1, ""quoted"""`));
-  assert.ok(first.endsWith(',true,,,'));
-  assert.ok(second.endsWith('"bodyweight",,,false,,,'));
+  assert.ok(first.endsWith(',true,,,,,'));
+  assert.ok(second.endsWith('"bodyweight",,,false,,,,,'));
   assert.equal(end, '');
   const snapshot: unknown = JSON.parse(toJson(ledger));
   const { path, ...exportedExercise } = ledger.exercises[0];
@@ -195,18 +195,31 @@ void test('CSV has one ordered set per row and protects spreadsheet formulas; JS
   });
 });
 
-void test('CSV and workout context preserve duration and the actual distance unit', () => {
-  const cardio = { ...exercise, measurements: ['time', 'distance'] as const, distanceUnit: 'mi' as const };
+void test('cardio display uses preferred units and exports preserve the recorded values', () => {
+  const cardio: ExerciseNote = { ...exercise, measurements: ['time', 'distance', 'elevationGain'],
+    distanceUnit: 'mi', elevationUnit: 'ft' };
+  const stored = set({ load: undefined, reps: undefined, durationSeconds: 621,
+    distance: { value: 2167.876, unit: 'm' }, elevationGain: { value: 123.456, unit: 'm' } });
   const record = changeWorkout(createWorkout('2026-10-01'), {
-    kind: 'add', set: set({ load: undefined, reps: undefined, durationSeconds: 621, distance: { value: 1.3, unit: 'mi' } }),
+    kind: 'add', set: stored,
   });
+  assert.equal(describeSet(stored, cardio), '10:21 · 1.35 mi · 405 ft elevation gain');
+  assert.equal(describeSet(stored), '10:21 · 2167.876 m · 123.456 m elevation gain');
+  assert.equal(describeSet(stored, readExercise({ ...exerciseFrontmatter(cardio), distance_unit: null, elevation_unit: null }) ?? undefined),
+    describeSet(stored));
+  assert.deepEqual(setMeasurements(stored), ['time', 'distance', 'elevationGain']);
   const ledger = data([record]);
-  ledger.exercises = [{ ...cardio, measurements: [...cardio.measurements] }];
+  ledger.exercises = [cardio];
   const [, row] = toCsv(ledger).split('\r\n');
-  assert.ok(row.endsWith(',,,,,false,621,1.3,"mi"'));
+  assert.ok(row.endsWith(',,,,,false,621,2167.876,"m",123.456,"m"'));
+  const exported: unknown = JSON.parse(toJson(ledger));
+  assert.partialDeepStrictEqual(exported, { workouts: [{ sets: [{
+    distance: { value: 2167.876, unit: 'm' }, elevationGain: { value: 123.456, unit: 'm' },
+  }] }] });
   const context = workoutContext(ledger, contextOptions);
   assert.match(context, /"durationSeconds": 621/);
-  assert.match(context, /"distance": \{\s+"value": 1.3,\s+"unit": "mi"/);
+  assert.match(context, /"distance": \{\s+"value": 2167\.876,\s+"unit": "m"/);
+  assert.match(context, /"elevationGain": \{\s+"value": 123\.456,\s+"unit": "m"/);
   assert.doesNotMatch(context, /latestEstimated1RM/);
 });
 

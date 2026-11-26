@@ -1,10 +1,10 @@
 import { progressExercises } from './analytics.ts';
 import { starterExercises, suggestExercises } from './catalog.ts';
 import {
-  combineAliases, distanceUnits, isDate, isDistanceUnit, isId, isRecord, isUnit, measurements, nameKey,
+  combineAliases, distanceUnits, isDate, isDistanceUnit, isElevationUnit, isId, isRecord, isUnit, measurements, nameKey,
   parseWorkout, SCHEMA_VERSION, setMeasurements,
-  type DistanceUnit, type Exercise, type ExerciseChoice, type LedgerData, type Measurement,
-  type SetDistance, type SetLoad, type Workout, type WorkoutSet,
+  type DistanceUnit, type ElevationUnit, type Exercise, type ExerciseChoice, type LedgerData, type Measurement,
+  type SetDistance, type SetElevationGain, type SetLoad, type Workout, type WorkoutSet,
 } from './model.ts';
 
 interface ExerciseSuggestion {
@@ -36,9 +36,9 @@ interface DraftExercise {
 
 const measurementKeys = Object.keys(measurements) as Measurement[];
 const rootFields = ['schemaVersion', 'exercises', 'workouts'];
-const exerciseFields = ['name', 'id', 'aliases', 'measurements', 'distanceUnit'];
+const exerciseFields = ['name', 'id', 'aliases', 'measurements', 'distanceUnit', 'elevationUnit'];
 const workoutFields = ['schemaVersion', 'id', 'date', 'createdAt', 'notes', 'sets'];
-const setFields = ['id', 'exerciseId', 'exerciseName', 'reps', 'load', 'durationSeconds', 'distance', 'warmup'];
+const setFields = ['id', 'exerciseId', 'exerciseName', 'reps', 'load', 'durationSeconds', 'distance', 'elevationGain', 'warmup'];
 
 class ExerciseIndex {
   readonly byId = new Map<string, ExerciseChoice>();
@@ -104,6 +104,10 @@ async function stableId(kind: string, value: unknown): Promise<string> {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+export function importedSetId(workoutId: string, index: number): Promise<string> {
+  return stableId('set', [workoutId, index]);
+}
+
 function readAliases(value: unknown, path: string, issues: ImportIssue[]): string[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
@@ -119,14 +123,14 @@ function readAliases(value: unknown, path: string, issues: ImportIssue[]): strin
 function readMeasurements(value: unknown, path: string, issues: ImportIssue[]): Measurement[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length === 0) {
-    issue(issues, 'INVALID_MEASUREMENTS', path, 'Choose at least one of weight, reps, time, or distance.');
+    issue(issues, 'INVALID_MEASUREMENTS', path, `Choose at least one of ${measurementKeys.join(', ')}.`);
     return [];
   }
   const result = new Set<Measurement>();
   value.forEach((entry, index) => {
     const measurement = measurementKeys.find((key) => key === entry);
     if (measurement) result.add(measurement);
-    else issue(issues, 'INVALID_MEASUREMENT', `${path}[${index}]`, 'Use weight, reps, time, or distance.');
+    else issue(issues, 'INVALID_MEASUREMENT', `${path}[${index}]`, `Use one of ${measurementKeys.join(', ')}.`);
   });
   return [...result];
 }
@@ -134,6 +138,11 @@ function readMeasurements(value: unknown, path: string, issues: ImportIssue[]): 
 function readDistanceUnit(value: unknown, path: string, issues: ImportIssue[]): DistanceUnit | undefined {
   if (isDistanceUnit(value)) return value;
   issue(issues, 'INVALID_DISTANCE_UNIT', path, `Enter the original distance unit as one of ${distanceUnits.join(', ')}.`);
+}
+
+function readElevationUnit(value: unknown, path: string, issues: ImportIssue[]): ElevationUnit | undefined {
+  if (isElevationUnit(value)) return value;
+  issue(issues, 'INVALID_ELEVATION_UNIT', path, 'Enter the elevation unit as m or ft.');
 }
 
 async function readExerciseDeclarations(
@@ -159,6 +168,8 @@ async function readExerciseDeclarations(
     const tracked = readMeasurements(declaration.measurements, `${path}.measurements`, issues);
     const distanceUnit = declaration.distanceUnit === undefined ? undefined
       : readDistanceUnit(declaration.distanceUnit, `${path}.distanceUnit`, issues);
+    const elevationUnit = declaration.elevationUnit === undefined ? undefined
+      : readElevationUnit(declaration.elevationUnit, `${path}.elevationUnit`, issues);
     if (!name || issues.length !== errorCount) continue;
 
     const matches = catalog.find(name);
@@ -196,7 +207,7 @@ async function readExerciseDeclarations(
     }
     const exercise: Exercise = {
       id, name, aliases: combineAliases(name, aliases), equipment: '', archived: false,
-      loadMode: 'weight', unit: 'lb', measurements: tracked, distanceUnit: distanceUnit ?? 'm', tags: [],
+      loadMode: 'weight', unit: 'lb', measurements: tracked, distanceUnit: distanceUnit ?? 'm', elevationUnit, tags: [],
     };
     drafts.set(id, {
       exercise, measurementsSpecified: declaration.measurements !== undefined,
@@ -290,6 +301,22 @@ function readDistance(value: unknown, path: string, issues: ImportIssue[]): SetD
   }
 }
 
+export function readElevationGain(value: unknown, path: string, issues: ImportIssue[]): SetElevationGain | undefined {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    issue(issues, 'INVALID_OBJECT', path, 'Enter an elevation gain object with value and unit.');
+    return;
+  }
+  const errorCount = issues.length;
+  checkFields(value, path, ['value', 'unit'], issues);
+  const unit = readElevationUnit(value.unit, `${path}.unit`, issues);
+  if (typeof value.value !== 'number' || !Number.isFinite(value.value) || value.value < 0) {
+    issue(issues, 'INVALID_ELEVATION_VALUE', `${path}.value`, 'Enter elevation gain as a number of zero or greater.');
+  } else if (unit && issues.length === errorCount) {
+    return { value: value.value, unit };
+  }
+}
+
 function readInteger(value: unknown, path: string, maximum: number, issues: ImportIssue[]): number | undefined {
   if (value === undefined) return undefined;
   if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= maximum) return value;
@@ -315,15 +342,17 @@ function readSet(
   const durationSeconds = readInteger(value.durationSeconds, `${path}.durationSeconds`, Number.MAX_SAFE_INTEGER, issues);
   const load = readLoad(value.load, `${path}.load`, issues);
   const distance = readDistance(value.distance, `${path}.distance`, issues);
+  const elevationGain = readElevationGain(value.elevationGain, `${path}.elevationGain`, issues);
   if (issues.length === beforeMeasurements && reps === undefined && durationSeconds === undefined &&
-      !distance && (!load || load.mode === 'bodyweight')) {
-    issue(issues, 'MISSING_MEASUREMENT', path, 'Provide reps, a measured load, durationSeconds, or distance.');
+      !distance && !elevationGain && (!load || load.mode === 'bodyweight')) {
+    issue(issues, 'MISSING_MEASUREMENT', path, 'Provide reps, a measured load, durationSeconds, distance, or elevationGain.');
   }
   if (value.warmup !== undefined && typeof value.warmup !== 'boolean') {
     issue(issues, 'INVALID_BOOLEAN', `${path}.warmup`, 'Use true or false, or omit warmup.');
   }
   if (exercise && issues.length === errorCount) {
-    return { id, exerciseId: exercise.id, exerciseName: exercise.name, reps, load, durationSeconds, distance, warmup: value.warmup === true };
+    return { id, exerciseId: exercise.id, exerciseName: exercise.name, reps, load, durationSeconds, distance, elevationGain,
+      warmup: value.warmup === true };
   }
 }
 
@@ -337,9 +366,10 @@ function readCreatedAt(value: unknown, date: string | undefined, path: string, i
 }
 
 function recordedMeasurements(set: DraftSet): unknown[] {
-  const { load, distance } = set;
+  const { load, distance, elevationGain } = set;
   const loadIdentity = load && load.mode !== 'bodyweight' ? [load.mode, load.value, load.unit] : null;
-  return [set.exerciseId, set.reps, loadIdentity, set.durationSeconds, distance ? [distance.value, distance.unit] : null];
+  const recorded = [set.exerciseId, set.reps, loadIdentity, set.durationSeconds, distance ? [distance.value, distance.unit] : null];
+  return elevationGain ? [...recorded, [elevationGain.value, elevationGain.unit]] : recorded;
 }
 
 function setIdentity(set: DraftSet): unknown[] {
@@ -391,13 +421,14 @@ async function readWorkout(
   if (!date || !createdAt || typeof notes !== 'string' || issues.length !== errorCount) return;
   const workoutId = id ?? await stableId('workout', [date, createdAt, notes, drafts.map(setIdentity)]);
   const sets = await Promise.all(drafts.map(async (set, index): Promise<WorkoutSet> => ({
-    ...set, id: set.id ?? await stableId('set', [workoutId, index]),
+    ...set, id: set.id ?? await importedSetId(workoutId, index),
   })));
   if (new Set(sets.map((set) => set.id)).size !== sets.length) {
     issue(issues, 'DUPLICATE_SET_ID', `${path}.sets`, 'A supplied set ID collides with a generated ID. Omit the supplied ID or change it.');
     return;
   }
-  const fitsLegacy = sets.every((set) => set.reps !== undefined && set.load !== undefined && !set.durationSeconds && !set.distance);
+  const fitsLegacy = sets.every((set) => set.reps !== undefined && set.load !== undefined && !set.durationSeconds &&
+    !set.distance && !set.elevationGain);
   return parseWorkout(JSON.stringify({ schemaVersion: fitsLegacy ? 1 : SCHEMA_VERSION, id: workoutId, date, createdAt, notes, sets }));
 }
 
@@ -412,6 +443,7 @@ function finalizeDraft(draft: DraftExercise, sets: WorkoutSet[]): Exercise {
   return {
     ...exercise, measurements: tracked, loadMode, unit: loads[0]?.unit ?? exercise.unit,
     distanceUnit: distanceUnitSpecified ? exercise.distanceUnit : sets.find((set) => set.distance)?.distance?.unit ?? exercise.distanceUnit,
+    elevationUnit: exercise.elevationUnit ?? sets.find((set) => set.elevationGain)?.elevationGain?.unit,
   };
 }
 
@@ -428,8 +460,8 @@ function notesToCreate(
   for (const id of setsByExercise.keys()) {
     const match = catalog.byId.get(id);
     if (!match?.starter) continue;
-    const { id: starterId, name, aliases, equipment, archived, measurements: tracked, distanceUnit, loadMode, unit, tags } = match;
-    notes.push({ id: starterId, name, aliases, equipment, archived, measurements: tracked, distanceUnit, loadMode, unit, tags });
+    const { id: starterId, name, aliases, equipment, archived, measurements: tracked, distanceUnit, elevationUnit, loadMode, unit, tags } = match;
+    notes.push({ id: starterId, name, aliases, equipment, archived, measurements: tracked, distanceUnit, elevationUnit, loadMode, unit, tags });
   }
   return notes;
 }

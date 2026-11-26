@@ -10,8 +10,9 @@ The vault contains the source data. `Exercises`, `Workouts`, and `Exports` live 
 | `set_ledger_schema` | `1` |
 | `exercise_name` | Display name |
 | `aliases` | Search names for the same exercise. Changing the display name in the plugin saves the previous name as an alias. |
-| `exercise_measurements` | Nonempty list containing any of `weight`, `reps`, `time`, and `distance`. |
-| `distance_unit` | Default distance entry unit, one of `m`, `km`, `mi`, `yd`, or `ft`. |
+| `exercise_measurements` | Nonempty list containing any of `weight`, `reps`, `time`, `distance`, and `elevationGain`. |
+| `distance_unit` | Preferred distance entry and display unit, one of `m`, `km`, `mi`, `yd`, or `ft`. |
+| `elevation_unit` | Preferred elevation gain entry and display unit, either `m` or `ft`. |
 | `exercise_tags` | List of grouped labels such as `region/Upper Body`, `role/Main`, `muscles/Shoulders`, `activity/Strength`, `movement/Push`, and `custom/Home`. |
 | `equipment` | Legacy text from older notes. Equipment distinctions in new notes can go in the display name, as in `Dumbbell Curl`. |
 | `load_mode` | Legacy load setting. Existing `added` and `assistance` exercises keep their load semantics. Notes without `exercise_measurements` default to reps for `bodyweight` or weight and reps for other modes. |
@@ -36,16 +37,19 @@ New sessions go under `Workouts/YYYY` using the workout date, including for back
 | `load` | Weight with `mode`, `value`, and original `unit` (`lb` or `kg`). Reps-only records can use `{ "mode": "bodyweight" }`. Assisted and added loads store the positive amount assisted or added. |
 | `durationSeconds` | Positive whole seconds. |
 | `distance` | Positive `value` with its original `unit`. |
+| `elevationGain` | Optional nonnegative `value` with its original `unit` (`m` or `ft`). Blank means absent. Zero records a measured gain of zero. |
 
 The `warmup` flag remains in saved files and exports for compatibility. New sets store `false`, and edits preserve the original value.
 
-Workout files that use only the original reps and load shape retain schema version `1`. Adding time, distance, or a set without both reps and load advances that file to schema version `2`. Version `2` can contain both old and new set shapes. Changes to an exercise’s fields or default units leave recorded measurements intact, and editing a set uses its original fields and units. Use an updated plugin on devices that share files with version `2` workouts.
+Workout files that use only the original reps and load shape retain schema version `1`. Adding time, distance, elevation gain, or a set without both reps and load advances that file to schema version `2`. Version `2` can contain both old and new set shapes. Editing a recorded measurement uses its original unit and precision. Enable **Elevation gain** on an exercise to add it when logging a set or editing a set with no elevation recorded. Clear the field in the set editor to remove the measurement.
+
+The log, last session, and Progress display distance in the exercise's preferred unit to two decimal places at most, and elevation gain to whole units when a preferred unit is set. With no exercise preference, the journal displays the recorded value and unit. New entries default to meters when a preference is absent.
 
 ## Analytics and exports
 
 - Rep Journal updates `Exports/rep-journal.csv` in the active journal folder in the background. It refreshes when you open or refresh the journal, add, edit, or delete a set, or save an exercise definition. Manual exports create dated copies. If source records cannot be read, the last complete export stays in place. The journal reports any export error. To retry, run **Refresh workout log** from Obsidian’s command palette or select **Refresh automatic CSV** in the standalone app’s Export view.
 - Exercise history and workout context use the best estimate per session from sets of 1–10 reps with a positive external weight. Weighted singles use their recorded load. For 2–10 reps, estimates use `weight × (1 + reps / 30)` after converting to the app's weight unit.
-- CSV uses one row per set, ordered by session and set order. Optional measurements have empty cells when absent. The `duration_seconds`, `distance_value` and `distance_unit` columns follow the existing columns. Exercise names resolve to the current exercise when available, with the set's recorded name as a fallback. Values that could be interpreted as spreadsheet formulas are escaped. Use JSON for exact text.
+- CSV uses one row per set, ordered by session and set order. Optional measurements have empty cells when absent. After `duration_seconds`, `distance_value`, and `distance_unit`, CSV includes `elevation_gain_value` and `elevation_gain_unit`. All measurements use their recorded values and units. Exercise names resolve to the current exercise when available, with the set's recorded name as a fallback. Values that could be interpreted as spreadsheet formulas are escaped. Use JSON for exact text.
 - JSON contains the exercise properties and workout records with IDs, units, and workout notes. The export schema is `2` and includes the original version for each workout record. The Markdown body of an exercise note lives in the vault. Keep the vault files for a complete backup of those notes.
 - Workout context includes selected dates, all logged sets on those dates, and exercise summaries. Workout notes are opt-in. Copying contextualizes the selected data for an LLM you use separately.
 

@@ -2,8 +2,9 @@ import { exerciseHistory, progressExercises, strengthTrend } from './analytics.t
 import { matchesExerciseName, pickerTags, starterExercises } from './catalog.ts';
 import { journalFolder } from './journal-paths.ts';
 import {
-  combineAliases, describeSet, exerciseFrontmatter, isDate, isDistanceUnit, isId, isRecord, measurements, parseDuration, readExercise, setMeasurements,
-  tagGroups, validateSet, type DistanceUnit, type Exercise, type ExerciseChoice, type ExerciseNote, type ExerciseTag,
+  combineAliases, describeSet, exerciseFrontmatter, isDate, isDistanceUnit, isElevationUnit, isId, isRecord,
+  measurements, parseDuration, readExercise, setMeasurements,
+  tagGroups, validateSet, type DistanceUnit, type ElevationUnit, type Exercise, type ExerciseChoice, type ExerciseNote, type ExerciseTag,
   type LedgerData, type Measurement, type WeightUnit, type WorkoutChange, type WorkoutFile, type WorkoutSet,
 } from './model.ts';
 
@@ -20,7 +21,8 @@ export interface LogSetInput {
   values: SetInputs;
 }
 
-type SetInputs = Partial<Record<Exclude<Measurement, 'time'>, number> & { time: number | string }>;
+type SetInputs = Partial<Record<Exclude<Measurement, 'time' | 'elevationGain'>, number> &
+  { time: number | string; elevationGain: number | null }>;
 
 export type WorkoutEditInput = {
   date: string;
@@ -45,7 +47,8 @@ export interface ExerciseEditInput {
     aliases: string[];
     archived: boolean;
     measurements: Measurement[];
-    distanceUnit: DistanceUnit;
+    distanceUnit?: DistanceUnit;
+    elevationUnit?: ElevationUnit;
     tags: ExerciseTag[];
   };
 }
@@ -75,10 +78,10 @@ export function exerciseProgress(data: LedgerData, exerciseId: string | null, un
   return {
     exercises, selected, tags: pickerTags(exercises), unit,
     trend: trend.map(({ date, sessionId, set, value }) => ({
-      date, sessionId, number: sessionNumber(date, sessionId), value, set: describeSet(set),
+      date, sessionId, number: sessionNumber(date, sessionId), value, set: describeSet(set, selected),
     })),
     sessions: history.map(({ workout: { id, date }, sets }) => ({
-      id, date, number: sessionNumber(date, id), sets: sets.map(describeSet), estimatedMax: estimates.get(id),
+      id, date, number: sessionNumber(date, id), sets: sets.map((set) => describeSet(set, selected)), estimatedMax: estimates.get(id),
     })),
   };
 }
@@ -130,16 +133,20 @@ export function prepareLogSet(data: LedgerData, input: ReturnType<typeof readLog
   if (!exercise) throw new Error('That exercise is no longer available. Refresh and try again.');
   const set: WorkoutSet = { id: input.setId, exerciseId: exercise.id, exerciseName: exercise.name, warmup: false };
   for (const measurement of exercise.measurements) {
+    if (measurement === 'elevationGain' && input.values.elevationGain === undefined) continue;
     const value = measurementValue(input.values, measurement);
     if (measurement === 'reps') set.reps = value;
     if (measurement === 'time') set.durationSeconds = value;
-    if (measurement === 'distance') set.distance = { value, unit: exercise.distanceUnit };
+    if (measurement === 'distance') set.distance = { value, unit: exercise.distanceUnit ?? 'm' };
+    if (measurement === 'elevationGain') set.elevationGain = { value, unit: exercise.elevationUnit ?? 'm' };
     if (measurement === 'weight') {
       const mode = exercise.loadMode;
       set.load = { mode: mode === 'assistance' || mode === 'added' ? mode : 'weight', value, unit };
     }
   }
-  if (!set.load && set.reps !== undefined && set.durationSeconds === undefined && !set.distance) set.load = { mode: 'bodyweight' };
+  if (!set.load && set.reps !== undefined && set.durationSeconds === undefined && !set.distance && !set.elevationGain) {
+    set.load = { mode: 'bodyweight' };
+  }
   validateSet(set);
 
   const replay = data.workouts.find(({ workout }) => workout.sets.some(({ id }) => id === set.id));
@@ -185,11 +192,25 @@ export function prepareWorkoutEdit(data: LedgerData, input: unknown, today: stri
   if (change.kind !== 'edit' || !isRecord(change.values)) throw new Error('Enter the set measurements.');
   const set = { ...before };
   for (const measurement of setMeasurements(before)) {
+    if (measurement === 'elevationGain') continue;
     const value = measurementValue(change.values, measurement);
     if (measurement === 'reps') set.reps = value;
     if (measurement === 'time') set.durationSeconds = value;
     if (measurement === 'distance' && before.distance) set.distance = { ...before.distance, value };
     if (measurement === 'weight' && before.load && before.load.mode !== 'bodyweight') set.load = { ...before.load, value };
+  }
+  const exercise = data.exercises.find(({ id }) => id === before.exerciseId);
+  if (change.values.elevationGain !== undefined) {
+    if (change.values.elevationGain === null) {
+      delete set.elevationGain;
+    } else if (before.elevationGain || exercise?.measurements.includes('elevationGain')) {
+      set.elevationGain = {
+        value: measurementValue(change.values, 'elevationGain'),
+        unit: before.elevationGain?.unit ?? exercise?.elevationUnit ?? 'm',
+      };
+    } else {
+      throw new Error('Enable elevation gain for this exercise before adding it to a set.');
+    }
   }
   return { date, original, change: { kind: 'edit', original: before, set: validateSet(set) } };
 }
@@ -210,7 +231,9 @@ export function prepareExerciseEdit(data: LedgerData, input: unknown, unit: Weig
   if (typeof values.name !== 'string' || !values.name.trim() || typeof values.archived !== 'boolean' ||
       !Array.isArray(values.aliases) || !values.aliases.every((alias): alias is string => typeof alias === 'string') ||
       !Array.isArray(values.measurements) || !values.measurements.every(isMeasurement) ||
-      !isDistanceUnit(values.distanceUnit) || !Array.isArray(values.tags) || !values.tags.every(isExerciseTag)) {
+      (values.distanceUnit !== undefined && !isDistanceUnit(values.distanceUnit)) ||
+      (values.elevationUnit !== undefined && !isElevationUnit(values.elevationUnit)) ||
+      !Array.isArray(values.tags) || !values.tags.every(isExerciseTag)) {
     throw new Error('Enter an exercise name and valid measurements and tags.');
   }
   if (!values.measurements.length) throw new Error('Choose at least one measurement.');
@@ -223,7 +246,8 @@ export function prepareExerciseEdit(data: LedgerData, input: unknown, unit: Weig
   const name = values.name.trim();
   const exercise = readExercise(exerciseFrontmatter({
     id: exerciseId, name, aliases: combineAliases(name, values.aliases, original?.name),
-    archived: values.archived, measurements: values.measurements, distanceUnit: values.distanceUnit, tags: values.tags,
+    archived: values.archived, measurements: values.measurements, distanceUnit: values.distanceUnit ?? original?.distanceUnit,
+    elevationUnit: values.elevationUnit ?? original?.elevationUnit, tags: values.tags,
     equipment: original?.equipment ?? '', unit: original?.unit ?? unit,
     loadMode: loadMode === 'assistance' || loadMode === 'added' ? loadMode : values.measurements.includes('weight') ? 'weight' : 'bodyweight',
   }));

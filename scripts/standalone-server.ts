@@ -29,7 +29,7 @@ const assets = new Map([
   ['/icons.js', { file: 'standalone/icons.ts', type: 'text/javascript' }],
   ['/popover-fn.js', { file: 'node_modules/@oddbird/popover-polyfill/dist/popover-fn.js', type: 'text/javascript' }],
   ['/popover-license.txt', { file: 'node_modules/@oddbird/popover-polyfill/LICENSE', type: 'text/plain' }],
-  ['/units.js', { file: 'standalone/units.ts', type: 'text/javascript' }],
+  ['/units.js', { file: 'src/units.ts', type: 'text/javascript' }],
   ['/strength-chart.js', { file: 'standalone/strength-chart.ts', type: 'text/javascript' }],
   ['/svgplot/charts.js', { file: 'node_modules/svgplot-wasm/charts.js', type: 'text/javascript' }],
   ['/svgplot/line.js', { file: 'node_modules/svgplot-wasm/line.js', type: 'text/javascript' }],

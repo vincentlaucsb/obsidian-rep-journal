@@ -1,4 +1,4 @@
-import type { DistanceUnit, WeightUnit } from '../src/model.ts';
+import type { DistanceUnit, WeightUnit } from './model.ts';
 
 const kgPerPound = 0.45359237;
 const metersPerUnit: Record<DistanceUnit, number> = { m: 1, km: 1000, mi: 1609.344, yd: 0.9144, ft: 0.3048 };

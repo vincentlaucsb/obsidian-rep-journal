@@ -1,4 +1,4 @@
-import { convertWeight } from '../standalone/units.ts';
+import { convertWeight } from './units.ts';
 import {
   compareWorkouts, setMeasurements, type ExerciseChoice, type LedgerData, type WeightUnit,
   type Workout, type WorkoutSet,
@@ -33,7 +33,7 @@ export function progressExercises(data: LedgerData): ExerciseChoice[] {
         id: set.exerciseId, name: set.exerciseName, aliases: [], equipment: '', archived: false, missingNote: true,
         loadMode: set.load?.mode ?? 'bodyweight',
         unit: set.load && set.load.mode !== 'bodyweight' ? set.load.unit : 'lb',
-        measurements: setMeasurements(set), distanceUnit: set.distance?.unit ?? 'm', tags: [],
+        measurements: setMeasurements(set), tags: [],
       });
     }
   }

@@ -1,13 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { parseArgs } from 'node:util';
+import { planGarminElevation, writeGarminElevation } from './garmin-elevation-backfill.ts';
 import { lockImportVault, readImportVault, resolveImportVaultRoot, writeImportVault } from './import-vault.ts';
 import { errorMessage, type ExerciseChoice, type LedgerData } from '../src/model.ts';
 import { importExerciseCatalog, planWorkoutImport, type ImportIssue, type WorkoutImportPlan } from '../src/workout-import.ts';
 
 type ImportMode = 'plan' | 'apply' | 'catalog';
 
-const usage = 'npm run --silent import -- --vault PATH --input PATH [--apply], or npm run --silent import -- --vault PATH --catalog';
+const usage = 'npm run --silent import -- --vault PATH --input PATH [--backfill-garmin-elevation] [--apply], or npm run --silent import -- --vault PATH --catalog';
 
 function respond(mode: ImportMode, exitCode: number, issues: ImportIssue[], details: Record<string, unknown> = {}): void {
   const written = mode === 'apply' ? { written: { exercises: [], workouts: [] } } : {};
@@ -24,17 +25,19 @@ function parseCommand(args: string[]) {
       input: { type: 'string' },
       catalog: { type: 'boolean' },
       apply: { type: 'boolean' },
+      'backfill-garmin-elevation': { type: 'boolean' },
     },
   });
   if (!values.vault?.trim()) throw new Error('Pass the path to a vault directory with --vault PATH.');
   if (values.catalog) {
-    if (values.input !== undefined || values.apply) {
+    if (values.input !== undefined || values.apply || values['backfill-garmin-elevation']) {
       throw new Error('Use --catalog on its own with --vault.');
     }
     return { mode: 'catalog' as const, vault: values.vault };
   }
   if (!values.input?.trim()) throw new Error('Pass an input JSON file with --input PATH, or stream JSON with --input -.');
-  return { mode: values.apply ? 'apply' as const : 'plan' as const, vault: values.vault, input: values.input };
+  return { mode: values.apply ? 'apply' as const : 'plan' as const, vault: values.vault, input: values.input,
+    backfillGarminElevation: values['backfill-garmin-elevation'] };
 }
 
 async function readInput(path: string): Promise<string> {
@@ -52,6 +55,7 @@ function describeExercise(exercise: ExerciseChoice) {
     aliases: exercise.aliases,
     measurements: exercise.measurements,
     distanceUnit: exercise.measurements.includes('distance') ? exercise.distanceUnit : undefined,
+    elevationUnit: exercise.measurements.includes('elevationGain') ? exercise.elevationUnit : undefined,
     archived: exercise.archived || undefined,
     starter: exercise.starter || undefined,
     missingNote: exercise.missingNote || undefined,
@@ -87,11 +91,21 @@ interface CommandResult {
   details?: Record<string, unknown>;
 }
 
-async function runAgainstVault(root: string, mode: ImportMode, input: unknown): Promise<CommandResult> {
+async function runAgainstVault(root: string, mode: ImportMode, input: unknown, backfillGarminElevation?: boolean): Promise<CommandResult> {
   const vault = await readImportVault(root);
   if (vault.issues.length) return { status: 1, issues: vault.issues };
   if (mode === 'catalog') {
     return { status: 0, issues: [], details: { catalog: importExerciseCatalog(vault.data).map(describeExercise) } };
+  }
+
+  if (backfillGarminElevation) {
+    const plan = await planGarminElevation(input, vault);
+    const summary = { activities: plan.activities };
+    if (plan.issues.length || mode === 'plan') {
+      return { status: plan.issues.length ? 2 : 0, issues: plan.issues, details: { plan: summary } };
+    }
+    const { written, issues } = await writeGarminElevation(vault, plan);
+    return { status: issues.length ? 1 : 0, issues, details: { written, plan: summary } };
   }
 
   const plan = await planWorkoutImport(input, vault.data);
@@ -148,7 +162,7 @@ async function main(args: string[]): Promise<void> {
       }
       release = lock.release;
     }
-    result = await runAgainstVault(root, mode, input);
+    result = await runAgainstVault(root, mode, input, command.backfillGarminElevation);
   } catch (error: unknown) {
     result = { status: 1, issues: [{ code: 'VAULT_IMPORT_FAILED', path: 'vault', message: errorMessage(error) }] };
   } finally {

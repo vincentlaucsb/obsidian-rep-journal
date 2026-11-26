@@ -35,6 +35,7 @@ const csvHeader = [
   'session_id', 'workout_date', 'session_created_at', 'set_id', 'set_order', 'exercise_id', 'exercise_name',
   'reps', 'load_type', 'load_value', 'load_unit', 'warmup',
   'duration_seconds', 'distance_value', 'distance_unit',
+  'elevation_gain_value', 'elevation_gain_unit',
 ];
 
 function csvCell(value: string | number | boolean | undefined): string {
@@ -59,6 +60,7 @@ export function toCsv(data: LedgerData): string {
         workout.id, workout.date, workout.createdAt, set.id, index + 1, set.exerciseId,
         names.get(set.exerciseId) ?? set.exerciseName, set.reps, set.load?.mode, load?.value, load?.unit, set.warmup,
         set.durationSeconds, set.distance?.value, set.distance?.unit,
+        set.elevationGain?.value, set.elevationGain?.unit,
       ].map(csvCell).join(','));
     }
   }
@@ -78,12 +80,13 @@ export function serializeExport(data: LedgerData, format: ExportFormat): string 
   return format === 'csv' ? toCsv(data) : toJson(data);
 }
 
-function contextSet(set: WorkoutSet): Pick<WorkoutSet, 'id' | 'reps' | 'load' | 'durationSeconds' | 'distance'> {
-  const { load, distance } = set;
+function contextSet(set: WorkoutSet): Pick<WorkoutSet, 'id' | 'reps' | 'load' | 'durationSeconds' | 'distance' | 'elevationGain'> {
+  const { load, distance, elevationGain } = set;
   return {
     id: set.id, reps: set.reps, durationSeconds: set.durationSeconds,
     load: load?.mode === 'bodyweight' ? { mode: load.mode } : load && { mode: load.mode, value: load.value, unit: load.unit },
     distance: distance && { value: distance.value, unit: distance.unit },
+    elevationGain: elevationGain && { value: elevationGain.value, unit: elevationGain.unit },
   };
 }
 
