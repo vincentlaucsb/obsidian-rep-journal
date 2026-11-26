@@ -143,7 +143,9 @@ export default class RepJournalPlugin extends Plugin {
     const content = (settings: Record<string, unknown>) => `${JSON.stringify({ ...settings, ...changes }, null, 2)}\n`;
     if (Platform.isDesktop && adapter instanceof FileSystemAdapter) {
       // The desktop vault adapter's rename refuses an existing destination.
-      await writeDesktopJournalSettings(require('node:fs/promises'), adapter.getFullPath(journalSettingsFile), changes, makeId());
+      const hostWindow = window;
+      await writeDesktopJournalSettings(require('node:fs/promises'), adapter.getFullPath(journalSettingsFile), changes, makeId(),
+        (delay) => new Promise<void>((resolve) => { hostWindow.setTimeout(resolve, delay); }));
       return;
     }
     if (await adapter.exists(journalSettingsFile)) {

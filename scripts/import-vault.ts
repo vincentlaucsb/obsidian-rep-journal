@@ -111,7 +111,7 @@ export async function readJournalFolder(root: string): Promise<string> {
 }
 
 export function updateJournalSettings(root: string, changes: Record<string, unknown>): Promise<void> {
-  return writeDesktopJournalSettings(fs, join(root, journalSettingsFile), changes, randomUUID());
+  return writeDesktopJournalSettings(fs, join(root, journalSettingsFile), changes, randomUUID(), wait);
 }
 
 function directoryPrefixes(path: string): string[] {
