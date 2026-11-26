@@ -5,18 +5,22 @@ import { parseDocument } from 'yaml';
 import { progressExercises } from '../src/analytics.ts';
 import { readCatalogExercise } from '../src/catalog.ts';
 import { automaticCsvFilename, exportSnapshotFilename, serializeExport, toCsv, type ExportFormat } from '../src/exports.ts';
-import { ensureDirectory, exerciseNoteHeader, hasErrorCode, lockImportVault, readImportVault, writeImportVault, writeNewFile } from './import-vault.ts';
-import { isWorkoutPlanPath, maxPlanBytes, planNoteFrom, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit, readLogSetInput, type PlanNote } from '../src/journal-workflow.ts';
+import {
+  ensureDirectory, exerciseNoteHeader, hasErrorCode, lockImportVault, readImportExercises, readImportVault,
+  unchangedImportVaultRecords, writeImportVault, writeNewFile,
+} from './import-vault.ts';
+import { isWorkoutPlanPath, maxPlanBytes, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit, readLogSetInput, type PlanNote } from '../src/journal-workflow.ts';
 import {
   changeWorkout, createWorkout, errorMessage, exerciseFrontmatter, parseWorkout, type Exercise, type ExerciseNote, type LedgerData,
   type WeightUnit, type WorkoutChange, type WorkoutFile,
 } from '../src/model.ts';
-import { datedPlanDate, isPlanYear, type DatedPlanNote, type DatedPlanRepository } from '../src/repo/plan-repository.ts';
+import { isPlanYear, type DatedPlanNote, type DatedPlanRepository, type PlanPickerRepository } from '../src/repo/plan-repository.ts';
+import { diskFileRevision, ledgerWithCommittedWorkout, type RecordRevisions } from '../src/repo/workout-snapshot.ts';
 import { parseWorkoutPlan } from '../src/workout-plan.ts';
 
 export interface StandaloneVault {
   root: string;
-  read(): ReturnType<typeof readImportVault>;
+  read(revisions?: RecordRevisions): ReturnType<typeof readImportVault>;
 }
 
 function isInside(root: string, path: string): boolean {
@@ -67,9 +71,9 @@ export async function listStandaloneDatedPlans(root: string, folder: string, dat
   });
 }
 
-export async function listStandalonePlans(root: string, journalFolder: string, data: LedgerData): Promise<PlanNote[]> {
-  const exercises = progressExercises(data);
-  const plans: PlanNote[] = [];
+export async function listStandalonePlans(root: string, journalFolder: string, repository: PlanPickerRepository): Promise<PlanNote[]> {
+  const exercises = await readImportExercises(root, journalFolder);
+  const paths: string[] = [];
   const folders = [''];
   while (folders.length) {
     const folder = folders.pop() ?? '';
@@ -83,17 +87,16 @@ export async function listStandalonePlans(root: string, journalFolder: string, d
       if (entry.isDirectory()) {
         if (isWorkoutPlanPath(`${path}/`, journalFolder)) folders.push(path);
       } else if (entry.isFile() && /\.md$/i.test(entry.name)) {
-        const file = join(root, path);
-        const stat = await lstat(file).catch(() => undefined);
-        if (!stat?.isFile() || stat.size > maxPlanBytes) continue;
-        const markdown = await readFile(file, 'utf8').catch(() => undefined);
-        if (markdown === undefined) continue;
-        const note = planNoteFrom(path, markdown, exercises, !!datedPlanDate(path, journalFolder));
-        if (note) plans.push(note);
+        paths.push(path);
       }
     }
   }
-  return plans.sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path));
+  return repository.read(paths, exercises, async (path) => {
+    const file = join(root, path);
+    const stat = await lstat(file, { bigint: true });
+    if (!stat.isFile() || stat.size > maxPlanBytes) return;
+    return { revision: diskFileRevision(stat), read: () => readFile(file, 'utf8') };
+  });
 }
 
 async function replaceVaultFile(file: string, original: string, updated: string): Promise<void> {
@@ -119,11 +122,13 @@ async function applyToWorkout(root: string, saved: WorkoutFile, change: WorkoutC
   return { path: saved.path, workout: updated };
 }
 
-async function withVault<T>(store: StandaloneVault, apply: (vault: Awaited<ReturnType<typeof readImportVault>>) => Promise<T>): Promise<T> {
+async function withVault<T>(
+  store: StandaloneVault, apply: (vault: Awaited<ReturnType<typeof readImportVault>>) => Promise<T>, revisions?: RecordRevisions,
+): Promise<T> {
   const lock = await lockImportVault(store.root);
   if ('issue' in lock) throw new Error(lock.issue.message);
   try {
-    return await apply(await store.read());
+    return await apply(await store.read(revisions));
   } finally {
     await lock.release();
   }
@@ -168,20 +173,36 @@ export function saveStandaloneExport(store: StandaloneVault, format: ExportForma
 
 type ReportAutomaticCsvError = (message?: string) => void;
 
-function withVaultEdit<T>(
+async function reuseWorkoutSnapshot(
+  vault: Awaited<ReturnType<typeof readImportVault>>, revisions: RecordRevisions, saved: WorkoutFile,
+): Promise<LedgerData | undefined> {
+  const data = ledgerWithCommittedWorkout(vault.data, saved);
+  if (!data) return;
+  try {
+    if (!await unchangedImportVaultRecords(vault.root, vault.folder, revisions, saved.path)) return;
+    const file = await existingVaultFile(vault.root, saved.path);
+    if (await readFile(file, 'utf8') === `${JSON.stringify(saved.workout, null, 2)}\n`) return data;
+  } catch {
+    // Use a fresh read to report vault issues when the committed snapshot cannot be verified.
+  }
+}
+
+function withVaultEdit<T extends WorkoutFile | ExerciseNote>(
   store: StandaloneVault, reportAutomaticCsv: ReportAutomaticCsvError,
-  apply: (vault: Awaited<ReturnType<typeof readImportVault>>) => Promise<T>,
+  apply: (vault: Awaited<ReturnType<typeof readImportVault>>) => Promise<T>, trackWorkout = false,
 ): Promise<T> {
+  const revisions: RecordRevisions | undefined = trackWorkout ? new Map() : undefined;
   return withVault(store, async (vault) => {
     const saved = await apply(vault);
     try {
-      await writeAutomaticCsv(await store.read());
+      const data = revisions && 'workout' in saved ? await reuseWorkoutSnapshot(vault, revisions, saved) : undefined;
+      await writeAutomaticCsv(data ? { ...vault, data } : await store.read());
       reportAutomaticCsv();
     } catch (error: unknown) {
       reportAutomaticCsv(errorMessage(error));
     }
     return saved;
-  });
+  }, revisions);
 }
 
 async function writeWorkoutChange(
@@ -204,7 +225,7 @@ export function saveStandaloneSet(
     const prepared = prepareLogSet(vault.data, request, unit);
     if ('replay' in prepared) return Promise.resolve(prepared.replay);
     return writeWorkoutChange(vault, request.date, { kind: 'add', set: prepared.set }, prepared.original);
-  });
+  }, true);
 }
 
 export function editStandaloneWorkout(store: StandaloneVault, input: unknown, today: string, reportAutomaticCsv: ReportAutomaticCsvError): Promise<WorkoutFile> {
@@ -212,7 +233,7 @@ export function editStandaloneWorkout(store: StandaloneVault, input: unknown, to
     const prepared = prepareWorkoutEdit(vault.data, input, today);
     if ('replay' in prepared) return Promise.resolve(prepared.replay);
     return writeWorkoutChange(vault, prepared.date, prepared.change, prepared.original, prepared.newWorkoutId);
-  });
+  }, true);
 }
 
 async function writeNewExercise(vault: Awaited<ReturnType<typeof readImportVault>>, exercise: Exercise): Promise<ExerciseNote> {

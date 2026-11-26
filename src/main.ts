@@ -35,7 +35,7 @@ export default class RepJournalPlugin extends Plugin {
       const folder = await vault.adapter.exists(journalSettingsFile)
         ? parseJournalFolder(await vault.adapter.read(journalSettingsFile))
         : journalFolder;
-      this.repository = new LedgerRepository(vault, folder);
+      this.repository = this.createRepository(folder);
     } catch (error: unknown) {
       new Notice(`Could not read ${journalSettingsFile}. ${errorMessage(error)}`);
     }
@@ -72,6 +72,15 @@ export default class RepJournalPlugin extends Plugin {
     } });
   }
 
+  private createRepository(root: string): LedgerRepository {
+    const vault = this.app.vault;
+    const adapter = vault.adapter;
+    const statHiddenWorkout = Platform.isDesktop && adapter instanceof FileSystemAdapter
+      ? (path: string) => require('node:fs/promises').lstat(adapter.getFullPath(path), { bigint: true })
+      : undefined;
+    return new LedgerRepository(vault, root, statHiddenWorkout);
+  }
+
   private createAdapter() {
     const repository = this.repository;
     if (!repository) return;
@@ -101,8 +110,7 @@ export default class RepJournalPlugin extends Plugin {
     if (previous && (overlapsExercises(root, previous) || overlapsExercises(previous, root))) {
       throw new Error('Choose a journal folder outside the other journal’s Exercises folder.');
     }
-    const vault = this.app.vault;
-    const repository = new LedgerRepository(vault, root);
+    const repository = this.createRepository(root);
     const settings = await this.readJournalSettings();
     await this.publishJournalSettings({ ...settings, journalFolder: root });
     this.repository = repository;
@@ -165,11 +173,21 @@ export default class RepJournalPlugin extends Plugin {
       return !!root && (affectsExerciseNotes(file, root, path) ||
         (file instanceof TFolder ? affectsDatedPlanFolder(path, root) : !!datedPlanDate(path, root)));
     };
-    const onChange = (file: TAbstractFile): void => { if (affects(file)) refresh(); };
+    const invalidate = (file: TAbstractFile, path = file.path): void => {
+      const folder = file instanceof TFolder;
+      if (folder || /\.md$/i.test(path)) this.adapter?.invalidatePlanPicker(path, folder);
+      if (!folder) this.repository?.markRecordChanged(path);
+    };
+    const onChange = (file: TAbstractFile): void => {
+      invalidate(file);
+      if (affects(file)) refresh();
+    };
     this.registerEvent(vault.on('create', onChange));
     this.registerEvent(vault.on('modify', onChange));
     this.registerEvent(vault.on('delete', onChange));
     this.registerEvent(vault.on('rename', (file, oldPath) => {
+      invalidate(file, oldPath);
+      invalidate(file);
       if (affects(file) || affects(file, oldPath)) refresh();
     }));
     this.register(() => hostWindow.clearTimeout(timer));

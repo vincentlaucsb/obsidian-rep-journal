@@ -13,6 +13,7 @@ import {
   compareWorkouts, errorMessage, exerciseFrontmatter, isRecord, parseWorkout, readExercise,
   type Exercise, type ExerciseNote, type LedgerData, type Workout, type WorkoutFile,
 } from '../src/model.ts';
+import { diskFileRevision, unchangedRecords, type RecordRevisions } from '../src/repo/workout-snapshot.ts';
 import { type ImportIssue, type WorkoutImportPlan } from '../src/workout-import.ts';
 
 interface ImportVault {
@@ -165,43 +166,67 @@ export async function lockImportVault(root: string): Promise<
   return { release: () => unlink(path) };
 }
 
-export async function readImportVault(root: string, configuredFolder?: string): Promise<ImportVault> {
+export async function readImportVault(root: string, configuredFolder?: string, revisions?: RecordRevisions): Promise<ImportVault> {
   const folder = configuredFolder === undefined ? await readJournalFolder(root) : normalizeJournalFolder(configuredFolder);
   const issues: ImportIssue[] = [];
-  const exercisePaths: string[] = [];
   const workoutPaths: string[] = [];
-  const sections = [
-    { name: 'Exercises', kind: 'exercises', paths: exercisePaths },
-    { name: 'Workouts', kind: 'workouts', paths: workoutPaths },
-  ] as const;
-  for (const section of sections) {
-    const path = `${folder}/${section.name}`;
-    try {
-      section.paths.push(...await listRecords(root, path, section.kind));
-    } catch (error: unknown) {
-      issues.push({ code: 'VAULT_DIRECTORY_UNREADABLE', path, message: errorMessage(error) });
-    }
+  const workoutsFolder = `${folder}/Workouts`;
+  try {
+    workoutPaths.push(...await listRecords(root, workoutsFolder, 'workouts'));
+  } catch (error: unknown) {
+    issues.push({ code: 'VAULT_DIRECTORY_UNREADABLE', path: workoutsFolder, message: errorMessage(error) });
   }
 
   const [exercises, workouts] = await Promise.all([
-    readRecords<ExerciseNote>(exercisePaths, async (path) => {
-      const exercise = readNote(await readFile(join(root, path), 'utf8'));
-      return exercise ? { ...exercise, path } : null;
-    }, 'exercise note', (exercise) => exercise.id, issues),
+    readImportExercises(root, folder, issues, revisions),
     readRecords<WorkoutFile>(workoutPaths, async (path) => ({
-      path, workout: parseWorkout(await readFile(join(root, path), 'utf8')),
+      path, workout: parseWorkout(await readRecordText(root, path, revisions)),
     }), 'workout', ({ workout }) => workout.id, issues),
   ]);
   issues.sort((a, b) => a.path.localeCompare(b.path));
   return {
     root, folder,
     data: {
-      exercises: exercises.sort((a, b) => a.name.localeCompare(b.name)),
+      exercises,
       workouts: workouts.sort((a, b) => compareWorkouts(a.workout, b.workout)),
       issues: issues.map((issue) => `${issue.path}: ${issue.message}`),
     },
     issues,
   };
+}
+
+export async function readImportExercises(root: string, folder: string, issues: ImportIssue[] = [], revisions?: RecordRevisions): Promise<ExerciseNote[]> {
+  const directory = `${folder}/Exercises`;
+  let paths: string[];
+  try {
+    paths = await listRecords(root, directory, 'exercises');
+  } catch (error: unknown) {
+    issues.push({ code: 'VAULT_DIRECTORY_UNREADABLE', path: directory, message: errorMessage(error) });
+    return [];
+  }
+  const exercises = await readRecords(paths, async (path) => {
+    const exercise = readNote(await readRecordText(root, path, revisions));
+    return exercise ? { ...exercise, path } : null;
+  }, 'exercise note', (exercise) => exercise.id, issues);
+  return exercises.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function recordRevision(root: string, path: string): Promise<string | undefined> {
+  const stat = await lstat(join(root, path), { bigint: true });
+  if (stat.isFile()) return diskFileRevision(stat);
+}
+
+async function readRecordText(root: string, path: string, revisions?: RecordRevisions): Promise<string> {
+  if (revisions) revisions.set(path, await recordRevision(root, path).catch(() => undefined));
+  return readFile(join(root, path), 'utf8');
+}
+
+export async function unchangedImportVaultRecords(root: string, folder: string, revisions: RecordRevisions, committedPath: string): Promise<boolean> {
+  const [exercises, workouts] = await Promise.all([
+    listRecords(root, `${folder}/Exercises`, 'exercises'),
+    listRecords(root, `${folder}/Workouts`, 'workouts'),
+  ]);
+  return unchangedRecords([...exercises, ...workouts], revisions, committedPath, (path) => recordRevision(root, path));
 }
 
 export async function writeNewFile(path: string, text: string): Promise<void> {

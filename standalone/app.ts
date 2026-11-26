@@ -9,6 +9,7 @@ import type { exerciseProgress, ExerciseEditInput, LogSetInput, PlanNote, Workou
 import type { DatedPlanNote } from '../src/repo/plan-repository.ts';
 import type { parseWorkoutPlan } from '../src/workout-plan.ts';
 import { WorkoutNoteDrafts } from './drafts.js';
+import { createExportScreen } from './export-screen.ts';
 import { lucideIcon } from './icons.js';
 import { plannedExercise, PlanUses, type PlanUse } from './plan-uses.ts';
 import { mountStrengthChart } from './strength-chart.js';
@@ -71,15 +72,6 @@ interface Entry {
   picker: Picker;
 }
 
-interface ContextDraft extends Omit<ContextOptions, 'daysPerWeek'> {
-  days: string;
-  text: string;
-  status: string;
-  error: boolean;
-  version: number;
-  pending?: boolean;
-}
-
 interface JournalState {
   journal: JournalData | null;
   date: string | null;
@@ -90,7 +82,6 @@ interface JournalState {
   saving: boolean;
   calendarMonth: Date;
   calendarDay: string | null;
-  context?: ContextDraft;
   plans?: PlanNote[];
   planError?: string;
   entry?: Entry;
@@ -131,9 +122,11 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   let vaultNotesRefreshRunning = false;
   let updateExerciseList: (() => void) | undefined;
   let progressVersion = 0;
+  let planPickerVersion = 0;
   let disposeStrengthChart: (() => void) | undefined;
   let disposePlanView: (() => void) | undefined;
   let disposeEntryNotes: (() => void) | undefined;
+  let disposeExportScreen: (() => void) | undefined;
   let restoredPlanUses: Promise<PlanUses> | undefined;
   let planUses: PlanUses;
   root.classList.add('rep-journal-modern');
@@ -145,7 +138,14 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   const drawStrengthChart = adapter.drawStrengthChart?.bind(adapter);
   const progress: Picker & { report: ProgressReport | null; exerciseId: string | null; workout: Workout | null; error: string } =
     { report: null, exerciseId: null, workout: null, search: '', tags: new Set(), error: '' };
-  const fileExport = { pending: false, error: false, status: '', automaticError: '' };
+  const exportScreen = createExportScreen({
+    el, button,
+    saveExport: (format) => adapter.saveExport(format),
+    refreshAutomaticCsv: () => adapter.refreshAutomaticCsv(),
+    readAutomaticCsvError: adapter.readAutomaticCsvError?.bind(adapter),
+    prepareContext: (options) => adapter.prepareContext(options),
+    clipboard: () => hostWindow.navigator.clipboard,
+  });
   const noteDrafts = new WorkoutNoteDrafts();
   const measurementNames: Record<Measurement, string> = { weight: 'Weight', reps: 'Reps', time: 'Time (seconds or mm:ss)', distance: 'Distance' };
   const exerciseTagGroups: Record<TagGroup, string> = { region: 'Body region', role: 'Training role', muscles: 'Muscle group',
@@ -299,6 +299,8 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   function disposeScreen() {
+    disposeExportScreen?.();
+    disposeExportScreen = undefined;
     disposeEntryNotes?.();
     disposeEntryNotes = undefined;
     disposeStrengthChart?.();
@@ -345,7 +347,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
         disposeStrengthChart = mountStrengthChart(chart, trend, unit, journalData().today, drawStrengthChart, createElement);
       }
     }
-    if (state.screen === 'export') app.append(renderExport());
+    if (state.screen === 'export') disposeExportScreen = exportScreen.mount(app, journalData().today);
   }
 
   function renderLog() {
@@ -842,161 +844,6 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     return el('div', { class: 'page' }, search, tags.length ? filters : undefined, results, list);
   }
 
-  function renderExport() {
-    return el('section', { class: 'page' }, el('h1', {}, 'Export'), renderFileExports(), renderWorkoutContext());
-  }
-
-  function renderFileExports() {
-    const csv = button('Export CSV', () => save('csv'));
-    const json = button('Export JSON', () => save('json'));
-    const refresh = button('Refresh automatic CSV', () => save('automatic-csv'));
-    const status = el('p', { role: 'status' });
-    const automaticStatus = el('p', { class: 'warning', role: 'status' });
-    const section = el('section', { class: 'plan-section' }, el('h2', {}, 'Training data'),
-      el('p', { class: 'secondary' }, 'New CSV and JSON exports save dated copies in Exports. The automatic CSV is always named rep-journal.csv.'),
-      el('div', { class: 'plan-controls' }, csv, json, refresh), status, automaticStatus);
-
-    function update() {
-      for (const control of [csv, json, refresh]) control.disabled = fileExport.pending;
-      status.textContent = fileExport.status;
-      status.hidden = !fileExport.status;
-      status.classList.toggle('warning', fileExport.error);
-      automaticStatus.textContent = fileExport.automaticError ? `Could not update the automatic CSV. ${fileExport.automaticError}` : '';
-      automaticStatus.hidden = !fileExport.automaticError;
-    }
-
-    async function save(format: ExportFormat | 'automatic-csv') {
-      if (fileExport.pending) return;
-      fileExport.pending = true;
-      fileExport.error = false;
-      fileExport.status = 'Saving…';
-      const automatic = format === 'automatic-csv';
-      if (automatic) fileExport.automaticError = '';
-      update();
-      try {
-        if (automatic) {
-          await adapter.refreshAutomaticCsv();
-          fileExport.status = 'Automatic CSV refreshed.';
-        } else {
-          const path = await adapter.saveExport(format);
-          fileExport.status = `Saved to ${path}`;
-        }
-      } catch (error) {
-        fileExport.status = message(error);
-        fileExport.error = true;
-      } finally {
-        fileExport.pending = false;
-        if (section.isConnected) update();
-        else if (state.screen === 'export') render();
-      }
-    }
-
-    update();
-    if (!fileExport.pending && adapter.readAutomaticCsvError) {
-      void adapter.readAutomaticCsvError().then((error) => {
-        if (!section.isConnected || fileExport.pending) return;
-        fileExport.automaticError = error ?? '';
-        update();
-      }).catch(() => undefined);
-    }
-    return section;
-  }
-
-  function renderWorkoutContext() {
-    if (!state.context) {
-      const today = journalData().today;
-      const start = asDate(today);
-      start.setUTCDate(start.getUTCDate() - 41);
-      state.context = { from: start.toISOString().slice(0, 10), to: today, goal: '', equipment: '', days: '', includeNotes: false,
-        text: '', status: '', error: false, version: 0 };
-    }
-    const context = state.context;
-    const from = el('input', { type: 'date', required: '' });
-    const to = el('input', { type: 'date', required: '' });
-    const goal = el('input', { type: 'text', maxlength: 500 });
-    const equipment = el('input', { type: 'text', maxlength: 500 });
-    const days = el('input', { type: 'number', min: 1, max: 7, step: 1, inputmode: 'numeric' });
-    const includeNotes = el('input', { type: 'checkbox' });
-    from.value = context.from;
-    to.value = context.to;
-    goal.value = context.goal;
-    equipment.value = context.equipment;
-    days.value = context.days;
-    includeNotes.checked = context.includeNotes;
-    const submit = el('button', { type: 'submit', class: 'primary' }, 'Prepare workout context');
-    const preview = el('textarea', { 'aria-label': 'Workout context preview', readonly: '', rows: 12 });
-    const copy = button('Copy workout context', copyContext);
-    const output = el('div', { class: 'context-preview' }, preview, el('div', {}, copy));
-    const status = el('p', { role: 'status' });
-    const form = el('form', { class: 'entry-form plan-section' }, el('h2', {}, 'Workout context'),
-      el('div', { class: 'entry-fields' }, el('label', {}, 'From', from), el('label', {}, 'Through', to)),
-      el('label', {}, 'Training goal', goal), el('label', {}, 'Available equipment', equipment), el('label', {}, 'Days per week', days),
-      el('label', { class: 'check-field' }, includeNotes, 'Include workout notes'), el('div', {}, submit), output, status);
-
-    function update() {
-      submit.disabled = Boolean(context.pending);
-      output.hidden = !context.text;
-      preview.value = context.text;
-      status.hidden = !context.status;
-      status.textContent = context.status;
-      status.classList.toggle('warning', context.error);
-    }
-
-    async function copyContext() {
-      const version = context.version;
-      try {
-        if (!hostWindow.navigator.clipboard) throw new Error('Clipboard unavailable.');
-        await hostWindow.navigator.clipboard.writeText(context.text);
-        if (version !== context.version) return;
-        context.status = 'Workout context copied.';
-      } catch {
-        if (version !== context.version) return;
-        preview.focus();
-        preview.select();
-        context.status = 'Copy the selected text manually.';
-      }
-      status.hidden = false;
-      status.textContent = context.status;
-    }
-
-    form.addEventListener('input', (event) => {
-      if (event.target === preview) return;
-      Object.assign(context, { from: from.value, to: to.value, goal: goal.value, equipment: equipment.value,
-        days: days.value, includeNotes: includeNotes.checked, text: '', status: '', error: false, pending: false });
-      context.version++;
-      update();
-    });
-    form.addEventListener('submit', (event) => {
-      event.preventDefault();
-      void prepare();
-    });
-    async function prepare() {
-      if (context.pending) return;
-      const version = ++context.version;
-      Object.assign(context, { pending: true, text: '', status: 'Preparing workout context…', error: false });
-      update();
-      try {
-        const text = await adapter.prepareContext({ from: from.value, to: to.value, goal: goal.value, equipment: equipment.value,
-          daysPerWeek: days.value ? days.valueAsNumber : null, includeNotes: includeNotes.checked });
-        if (version !== context.version) return;
-        context.text = text;
-        context.status = '';
-      } catch (error) {
-        if (version !== context.version) return;
-        context.status = message(error);
-        context.error = true;
-      } finally {
-        if (version === context.version) {
-          context.pending = false;
-          if (form.isConnected) update();
-          else if (state.screen === 'export') render();
-        }
-      }
-    }
-    update();
-    return form;
-  }
-
   function sessionLabel(workout: Workout) {
     const sessions = workouts().filter(({ date }) => date === workout.date);
     const index = sessions.findIndex(({ id }) => id === workout.id);
@@ -1046,13 +893,18 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const endOfMonth = new Date(date);
     endOfMonth.setUTCMonth(date.getUTCMonth() + 1, 0);
     const days = endOfMonth.getUTCDate();
-    const sessions = workouts();
+    const sessions = new Map<string, Workout[]>();
+    for (const { workout } of journalData().workouts) {
+      const day = sessions.get(workout.date);
+      if (day) day.push(workout);
+      else sessions.set(workout.date, [workout]);
+    }
     const grid = el('div', { class: 'calendar-grid', 'aria-label': 'Workout dates' },
       ...['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => el('span', { class: 'weekday' }, day)));
     for (let pad = 0; pad < date.getUTCDay(); pad++) grid.append(el('span', { 'aria-hidden': 'true' }));
     for (let number = 1; number <= days; number++) {
       const day = `${month}-${String(number).padStart(2, '0')}`;
-      const entries = sessions.filter(({ date: workoutDate }) => workoutDate === day);
+      const entries = sessions.get(day) ?? [];
       const label = `${fullDate.format(asDate(day))}, ${entries.length} ${entries.length === 1 ? 'workout' : 'workouts'}`;
       const control = button(String(number), () => openCalendarDay(day, entries), { className: 'calendar-day', label });
       if (day === journalData().today) control.setAttribute('aria-current', 'date');
@@ -1067,8 +919,8 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     }
     const choices = state.calendarDay ? el('section', { class: 'calendar-sessions', 'aria-live': 'polite' },
       el('h2', {}, shortDate.format(asDate(state.calendarDay))),
-      ...sessions.filter(({ date: day }) => day === state.calendarDay).map((session) =>
-        button(`${sessionLabel(session)} · ${session.sets.length} ${session.sets.length === 1 ? 'set' : 'sets'}`, () => goSession(session)))) : undefined;
+      ...(sessions.get(state.calendarDay) ?? []).map((session, index) =>
+        button(`Session ${index + 1} · ${session.sets.length} ${session.sets.length === 1 ? 'set' : 'sets'}`, () => goSession(session)))) : undefined;
     const picker = el('input', { type: 'date', min: '0001-01-01', max: '9999-12-31', required: '' });
     const day = workoutDate();
     picker.value = state.calendarDay ?? (day.startsWith(month + '-') ? day : month + '-01');
@@ -1088,11 +940,17 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   async function openPlans() {
+    const version = ++planPickerVersion;
     state.plans = undefined;
     state.planError = '';
     view('plans');
-    try { state.plans = await adapter.listPlans(); }
-    catch (error) { state.planError = message(error); }
+    let plans: PlanNote[] | undefined;
+    let problem = '';
+    try { plans = await adapter.listPlans(); }
+    catch (error) { problem = message(error); }
+    if (!mounted || version !== planPickerVersion) return;
+    state.plans = plans;
+    state.planError = problem;
     if (state.screen === 'plans') render();
   }
 

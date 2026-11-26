@@ -4,17 +4,18 @@ import type { JournalAdapter } from '../standalone/app.ts';
 import { progressExercises } from './analytics.ts';
 import { readContextOptions, serializeExport, workoutContext } from './exports.ts';
 import {
-  exerciseProgress, isWorkoutPlanPath, maxPlanBytes, planNoteFrom, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit,
+  exerciseProgress, isWorkoutPlanPath, maxPlanBytes, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit,
   readLogSetInput, workoutStarters,
-  type PlanNote,
 } from './journal-workflow.ts';
 import { localDate, makeId, type WeightUnit } from './model.ts';
-import { DatedPlanRepository, datedPlanDate, isPlanYear } from './repo/plan-repository.ts';
+import { DatedPlanRepository, isPlanYear, PlanPickerRepository } from './repo/plan-repository.ts';
+import { vaultFileRevision } from './repo/vault-records.ts';
 import type { LedgerRepository } from './repository.ts';
 import { parseWorkoutPlan } from './workout-plan.ts';
 
 type JournalVault = Pick<Vault, 'getMarkdownFiles' | 'getFolderByPath' | 'getFileByPath' | 'cachedRead'>;
-type JournalRepository = Pick<LedgerRepository, 'root' | 'read' | 'saveWorkout' | 'saveExercise' | 'saveStarter' | 'writeExport' | 'refreshAutomaticCsv'>;
+type JournalRepository = Pick<LedgerRepository, 'root' | 'read' | 'readExercises' | 'readWorkoutSnapshot' | 'saveWorkout' | 'saveExercise' | 'saveStarter' |
+  'writeExport' | 'refreshAutomaticCsv'>;
 
 export function createObsidianJournalAdapter(
   vault: JournalVault,
@@ -25,10 +26,12 @@ export function createObsidianJournalAdapter(
     reportExportError: (error: unknown) => void;
     openExerciseNote: NonNullable<JournalAdapter['openExerciseNote']>;
   },
-): JournalAdapter {
+): JournalAdapter & { invalidatePlanPicker(path: string, folder: boolean): void } {
   let writes: Promise<unknown> = Promise.resolve();
   const plans = new DatedPlanRepository(repository.root);
-  const updateAutomaticCsv = (): Promise<void> => repository.refreshAutomaticCsv().catch(options.reportExportError);
+  const planPicker = new PlanPickerRepository(repository.root);
+  const updateAutomaticCsv = (workout?: Parameters<JournalRepository['refreshAutomaticCsv']>[0]): Promise<void> =>
+    repository.refreshAutomaticCsv(workout).catch(options.reportExportError);
 
   function write<T>(apply: () => Promise<T>): Promise<T> {
     const pending = writes.catch(() => undefined).then(apply);
@@ -37,6 +40,9 @@ export function createObsidianJournalAdapter(
   }
 
   return {
+    invalidatePlanPicker: (path, folder) => {
+      if (isWorkoutPlanPath(folder ? `${path}/` : path, repository.root)) planPicker.invalidate(path, folder);
+    },
     async loadJournal() {
       const data = await repository.read();
       const plansFolder = vault.getFolderByPath(`${repository.root}/Plans`);
@@ -52,18 +58,13 @@ export function createObsidianJournalAdapter(
       if (!isSupported()) apply();
     },
     async listPlans() {
-      const exercises = progressExercises(await repository.read());
-      const files = vault.getMarkdownFiles().filter((file) => isWorkoutPlanPath(file.path, repository.root) && file.stat.size <= maxPlanBytes);
-      const plans: PlanNote[] = [];
-      for (let start = 0; start < files.length; start += 24) {
-        const notes = await Promise.all(files.slice(start, start + 24).map(async (file) => {
-          const markdown = await vault.cachedRead(file).catch(() => undefined);
-          if (markdown === undefined) return;
-          return planNoteFrom(file.path, markdown, exercises, !!datedPlanDate(file.path, repository.root));
-        }));
-        for (const note of notes) if (note) plans.push(note);
-      }
-      return plans.sort((a, b) => a.title.localeCompare(b.title) || a.path.localeCompare(b.path));
+      const exercises = await repository.readExercises();
+      const paths = vault.getMarkdownFiles().map(({ path }) => path).filter((path) => isWorkoutPlanPath(path, repository.root));
+      return planPicker.read(paths, exercises, (path) => {
+        const file = vault.getFileByPath(path);
+        if (!file || file.stat.size > maxPlanBytes) return;
+        return { revision: vaultFileRevision(file.stat), read: () => vault.cachedRead(file) };
+      });
     },
     async readPlan(path) {
       const note = vault.getFileByPath(path);
@@ -76,19 +77,21 @@ export function createObsidianJournalAdapter(
     saveSet(input, unit) {
       return write(async () => {
         const request = readLogSetInput(input, localDate());
-        const prepared = prepareLogSet(await repository.read(), request, unit);
+        const snapshot = await repository.readWorkoutSnapshot();
+        const prepared = prepareLogSet(snapshot.data, request, unit);
         if ('replay' in prepared) return prepared.replay;
         const saved = await repository.saveWorkout(request.date, { kind: 'add', set: prepared.set }, prepared.original);
-        void updateAutomaticCsv();
+        void updateAutomaticCsv({ snapshot, saved });
         return saved;
       });
     },
     editWorkout(input) {
       return write(async () => {
-        const prepared = prepareWorkoutEdit(await repository.read(), input, localDate());
+        const snapshot = await repository.readWorkoutSnapshot();
+        const prepared = prepareWorkoutEdit(snapshot.data, input, localDate());
         if ('replay' in prepared) return prepared.replay;
         const saved = await repository.saveWorkout(prepared.date, prepared.change, prepared.original, prepared.newWorkoutId);
-        void updateAutomaticCsv();
+        void updateAutomaticCsv({ snapshot, saved });
         return saved;
       });
     },

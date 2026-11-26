@@ -11,7 +11,8 @@ import { readContextOptions, workoutContext } from '../src/exports.ts';
 import { journalFolder } from '../src/journal-paths.ts';
 import { exerciseProgress, workoutStarters } from '../src/journal-workflow.ts';
 import { errorMessage, isId, isRecord, isUnit, localDate, type WeightUnit } from '../src/model.ts';
-import { DatedPlanRepository } from '../src/repo/plan-repository.ts';
+import { DatedPlanRepository, PlanPickerRepository } from '../src/repo/plan-repository.ts';
+import type { RecordRevisions } from '../src/repo/workout-snapshot.ts';
 import { readImportVault, readJournalFolder, resolveImportVaultRoot } from './import-vault.ts';
 import { svelteNotices, sveltePlugin } from './svelte-esbuild.ts';
 import {
@@ -66,8 +67,9 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 export async function startStandalone(vault: string, port = 4317, unit: WeightUnit = 'lb') {
   const root = await resolveImportVaultRoot(vault);
   const folder = await readJournalFolder(root);
-  const store = { root, read: () => readImportVault(root, folder) };
+  const store = { root, read: (revisions?: RecordRevisions) => readImportVault(root, folder, revisions) };
   const plans = new DatedPlanRepository(folder);
+  const planPicker = new PlanPickerRepository(folder);
   const hash = createHash('sha256').update(root);
   if (folder !== journalFolder) hash.update('\0').update(folder);
   const vaultKey = hash.digest('hex').slice(0, 24);
@@ -137,10 +139,10 @@ export async function startStandalone(vault: string, port = 4317, unit: WeightUn
       if (exerciseId !== null && !isId(exerciseId)) throw new Error('Choose an exercise.');
       const { data } = await store.read();
       json(response, 200, exerciseProgress(data, exerciseId, unit));
-    } else if (url.pathname === '/api/plans' || url.pathname === '/api/plan') {
-      const { data, folder } = await store.read();
-      if (url.pathname === '/api/plans') json(response, 200, await listStandalonePlans(root, folder, data));
-      else json(response, 200, await readStandalonePlan(root, url.searchParams.get('path') ?? '', data));
+    } else if (url.pathname === '/api/plans') {
+      json(response, 200, await listStandalonePlans(root, folder, planPicker));
+    } else if (url.pathname === '/api/plan') {
+      json(response, 200, await readStandalonePlan(root, url.searchParams.get('path') ?? '', (await store.read()).data));
     } else if (url.pathname === '/app.js') {
       const { outputFiles } = await build({
         entryPoints: [fileURLToPath(new URL('../standalone/app.ts', import.meta.url))],

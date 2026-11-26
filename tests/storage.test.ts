@@ -68,6 +68,57 @@ void test('native dated plan discovery reads valid notes in the configured plan 
     [['2024-02-29', second], ['2024-03-03', moved]]);
 });
 
+void test('native plan picker reuses both matches and misses and retries unreadable notes', async () => {
+  const vault = new MemoryVault();
+  const repository = new LedgerRepository(vault);
+  const exercise = await repository.saveExercise(details);
+  await vault.createFolder('Templates');
+  const note = 'Templates/Strength.md';
+  const unrelated = 'Templates/Ordinary.md';
+  const markdown = '# First\n\n## Main\n\n### Bench\n';
+  const file = await vault.create(note, markdown);
+  await vault.create(unrelated, '# Meeting notes\n');
+  const adapter = createObsidianJournalAdapter(vault, repository, {
+    vaultKey: 'memory-vault', weightUnit: () => 'lb', reportExportError: () => undefined, openExerciseNote: () => undefined,
+  });
+  const reads: string[] = [];
+  let fail = true;
+  const cachedRead = vault.cachedRead.bind(vault);
+  vault.cachedRead = (entry) => {
+    if (entry.path.startsWith('Templates/')) reads.push(entry.path);
+    if (entry.path === note && fail) {
+      fail = false;
+      return Promise.reject(new Error('Temporary read failure'));
+    }
+    return cachedRead(entry);
+  };
+  assert.deepEqual(await adapter.listPlans(), []);
+  assert.deepEqual(reads.splice(0), [note, unrelated]);
+  assert.deepEqual(await adapter.listPlans(), [{ path: note, title: 'First' }]);
+  assert.deepEqual(reads.splice(0), [note]);
+  assert.deepEqual(await adapter.listPlans(), [{ path: note, title: 'First' }]);
+  assert.equal(reads.length, 0);
+
+  const { mtime } = file.stat;
+  await vault.adapter.write(note, markdown.replace('First', 'Other'));
+  file.stat.mtime = mtime;
+  adapter.invalidatePlanPicker(note, false);
+  assert.deepEqual(await adapter.listPlans(), [{ path: note, title: 'Other' }]);
+  assert.deepEqual(reads.splice(0), [note]);
+
+  const archived = await repository.saveExercise({ ...exercise, archived: true }, exercise);
+  assert.deepEqual(await adapter.listPlans(), []);
+  assert.deepEqual(reads.splice(0), [note]);
+  await repository.saveExercise({ ...archived, archived: false }, archived);
+  const renamed = 'Templates/New name.md';
+  vault.rename(note, renamed);
+  assert.deepEqual(await adapter.listPlans(), [{ path: renamed, title: 'Other' }]);
+  assert.deepEqual(reads.splice(0), [renamed]);
+  vault.delete(renamed);
+  assert.deepEqual(await adapter.listPlans(), []);
+  assert.equal(reads.length, 0);
+});
+
 void test('the native workout log uses the vault repository without writing on startup', async () => {
   const vault = new MemoryVault();
   const repository = new LedgerRepository(vault);
@@ -437,6 +488,91 @@ void test('automatic CSV serializes overlapping refreshes and can retry a failed
   assert.equal(writes.length, 2);
   assert.equal(await vault.adapter.read(path), toCsv(await repository.read()));
   assert.match(writes[1], /,6,"weight",60,"kg",/);
+});
+
+void test('native set saves reuse ledger bodies and validate hidden JSON changes before exporting', async () => {
+  const vault = new MemoryVault();
+  const stats: string[] = [];
+  const repository = new LedgerRepository(vault, undefined, async (path) => {
+    stats.push(path);
+    const stat = await vault.adapter.stat(path);
+    if (!stat) return;
+    return { dev: 0n, ino: BigInt(stat.ctime), ctimeNs: BigInt(stat.mtime), mtimeNs: BigInt(stat.mtime),
+      size: BigInt(stat.size), isFile: () => true };
+  });
+  const exercise = await repository.saveExercise(details);
+  const date = '2026-10-01';
+  const set: WorkoutSet = { id: makeId(), exerciseId: exercise.id, exerciseName: exercise.name, reps: 5,
+    load: { mode: 'weight', value: 60, unit: 'lb' }, warmup: false };
+  const target = await repository.saveWorkout(date, { kind: 'add', set });
+  const historical = await repository.saveWorkout('2026-09-30', { kind: 'add', set: { ...set, id: makeId(), reps: 4 } });
+  const path = 'Rep Journal/Exports/rep-journal.csv';
+  const errors: unknown[] = [];
+  const adapter = createObsidianJournalAdapter(vault, repository, {
+    vaultKey: 'memory-vault', weightUnit: () => 'lb', reportExportError: (error) => { errors.push(error); }, openExerciseNote: () => undefined,
+  });
+  const refresh = repository.refreshAutomaticCsv.bind(repository);
+  let automatic: Promise<void> | undefined;
+  repository.refreshAutomaticCsv = (request) => {
+    automatic = refresh(request);
+    return automatic;
+  };
+  const csvUpdate = () => { assert.ok(automatic); return automatic; };
+  const reads: string[] = [];
+  const read = vault.adapter.read;
+  vault.adapter.read = (target) => { reads.push(target); return read(target); };
+  const saved = await adapter.saveSet({ date, selectedDate: true, workoutId: target.workout.id, exerciseId: exercise.id,
+    setId: makeId(), values: { weight: 65, reps: 6 } }, 'lb');
+  await csvUpdate();
+  assert.deepEqual(reads.filter((entry) => entry === exercise.path || entry === historical.path).sort(), [exercise.path, historical.path].sort());
+  assert.equal(reads.filter((entry) => entry === target.path).length, 2);
+  assert.equal(stats.filter((entry) => entry === historical.path).length, 2);
+  assert.equal(await read(path), toCsv(await repository.read()));
+
+  const process = vault.adapter.process;
+  const historicalWorkout = { ...historical.workout, sets: [{ ...historical.workout.sets[0], reps: 7 }] };
+  vault.adapter.process = async (target, transform) => {
+    await vault.adapter.write(historical.path, `${JSON.stringify(historicalWorkout, null, 2)}\n`);
+    return process(target, transform);
+  };
+  await adapter.editWorkout({ date, workoutId: saved.workout.id, change: { kind: 'notes', original: '', value: 'New note' } });
+  await csvUpdate();
+  const complete = await read(path);
+  assert.equal(complete, toCsv(await repository.read()));
+  assert.match(complete, /,7,"weight",60,"lb",/);
+
+  vault.adapter.process = async (target, transform) => {
+    await vault.create('Rep Journal/Workouts/copy.json', await read(historical.path));
+    return process(target, transform);
+  };
+  await adapter.editWorkout({ date, workoutId: saved.workout.id, change: { kind: 'notes', original: 'New note', value: 'Another note' } });
+  await assert.rejects(csvUpdate(), /Duplicate record ID/);
+  assert.equal(errors.length, 1);
+  assert.equal(await read(path), complete);
+});
+
+void test('native CSV rereads hidden workouts when the vault cannot prove their revision', async () => {
+  const vault = new MemoryVault();
+  const repository = new LedgerRepository(vault);
+  const exercise = await repository.saveExercise(details);
+  const set: WorkoutSet = { id: makeId(), exerciseId: exercise.id, exerciseName: exercise.name, reps: 8,
+    load: { mode: 'weight', value: 60, unit: 'lb' }, warmup: false };
+  const historical = await repository.saveWorkout('2026-09-30', { kind: 'add', set });
+  const date = '2026-10-01';
+  const target = await repository.saveWorkout(date, { kind: 'notes', original: '', value: 'First' });
+  const originalStats = await vault.adapter.stat(historical.path);
+  const stat = vault.adapter.stat;
+  vault.adapter.stat = (path) => path === historical.path ? Promise.resolve(originalStats) : stat(path);
+
+  const snapshot = await repository.readWorkoutSnapshot();
+  const saved = await repository.saveWorkout(date, { kind: 'notes', original: 'First', value: 'Edited' }, target);
+  const previous = await vault.adapter.read(historical.path);
+  await vault.adapter.write(historical.path, previous.replace('"reps": 8', '"reps": 9'));
+  assert.deepEqual(await vault.adapter.stat(historical.path), originalStats);
+  await repository.refreshAutomaticCsv({ snapshot, saved });
+  const text = await vault.adapter.read('Rep Journal/Exports/rep-journal.csv');
+  assert.equal(text, toCsv(await repository.read()));
+  assert.match(text, /,9,"weight",60,"lb",/);
 });
 
 void test('reports corrupt and duplicate sessions while preserving the source files', async () => {

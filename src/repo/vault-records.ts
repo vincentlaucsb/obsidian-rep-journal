@@ -1,4 +1,4 @@
-import type { DataAdapter, Vault } from 'obsidian';
+import type { DataAdapter, TFile, Vault } from 'obsidian';
 import { errorMessage } from '../model.ts';
 
 type Section = 'Exercises' | 'Workouts' | 'Exports';
@@ -7,6 +7,22 @@ export type LedgerVault = Pick<Vault, 'cachedRead' | 'create' | 'createFolder' |
   'getFileByPath' | 'getFolderByPath' | 'modify' | 'process'> & {
   adapter: Pick<DataAdapter, 'exists' | 'list' | 'process' | 'read' | 'write'>;
 };
+
+export function vaultFileRevision({ ctime, mtime, size }: { ctime: number; mtime: number; size: number }): string {
+  return `${ctime}:${mtime}:${size}`;
+}
+
+const visibleFileVersions = new WeakMap<TFile, number>();
+let nextFileVersion = 0;
+
+export function markVaultFileChanged(file: TFile): void {
+  visibleFileVersions.set(file, ++nextFileVersion);
+}
+
+export function visibleFileRevision(file: TFile): string {
+  if (!visibleFileVersions.has(file)) markVaultFileChanged(file);
+  return `${visibleFileVersions.get(file)}:${vaultFileRevision(file.stat)}`;
+}
 
 export function isRecordPath(path: string, root: string, section: Section): boolean {
   return path.startsWith(`${root}/${section}/`);

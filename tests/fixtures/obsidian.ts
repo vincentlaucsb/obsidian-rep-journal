@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import type { FrontMatterInfo, Vault } from 'obsidian';
 
 class MockAbstractFile {
@@ -46,6 +47,7 @@ export function getFrontMatterInfo(content: string): FrontMatterInfo {
 export class MemoryVault {
   private readonly files = new Map<string, { text: string; file: TFile }>();
   private readonly folders = new Map<string, TFolder>();
+  private timestamp = 0;
 
   readonly adapter = {
     exists: async (path: string): Promise<boolean> => this.files.has(path) || this.folders.has(path),
@@ -57,11 +59,15 @@ export class MemoryVault {
       };
     },
     read: async (path: string): Promise<string> => this.entry(path).text,
-    write: async (path: string, text: string): Promise<void> => { this.entry(path).text = text; },
+    stat: async (path: string) => {
+      const file = this.files.get(path)?.file;
+      return file ? { type: 'file' as const, ...file.stat } : null;
+    },
+    write: async (path: string, text: string): Promise<void> => { this.write(path, text); },
     process: async (path: string, transform: (text: string) => string): Promise<string> => {
-      const entry = this.entry(path);
-      entry.text = transform(entry.text);
-      return entry.text;
+      const text = transform(this.entry(path).text);
+      this.write(path, text);
+      return text;
     },
   };
 
@@ -75,6 +81,7 @@ export class MemoryVault {
     const folder = this.folders.get(this.parentPath(path));
     if (!folder) throw new Error('Folder missing');
     const file = new TFile(path, folder);
+    file.stat = { ctime: ++this.timestamp, mtime: this.timestamp, size: Buffer.byteLength(text) };
     folder.children.push(file);
     this.files.set(path, { text, file });
     return file;
@@ -101,6 +108,13 @@ export class MemoryVault {
     this.files.set(path, entry);
   }
 
+  delete(path: string): void {
+    const { file } = this.entry(path);
+    const parent = file.parent;
+    if (parent) parent.children = parent.children.filter((child) => child !== file);
+    this.files.delete(path);
+  }
+
   cachedRead(file: TFile): Promise<string> { return this.adapter.read(file.path); }
   modify(file: TFile, text: string): Promise<void> { return this.adapter.write(file.path, text); }
   process(file: TFile, transform: (text: string) => string): Promise<string> { return this.adapter.process(file.path, transform); }
@@ -109,6 +123,12 @@ export class MemoryVault {
     const entry = this.files.get(path);
     if (!entry) throw new Error('File missing');
     return entry;
+  }
+
+  private write(path: string, text: string): void {
+    const entry = this.entry(path);
+    entry.text = text;
+    entry.file.stat = { ...entry.file.stat, mtime: ++this.timestamp, size: Buffer.byteLength(text) };
   }
 
   private parentPath(path: string): string { return path.slice(0, Math.max(0, path.lastIndexOf('/'))); }

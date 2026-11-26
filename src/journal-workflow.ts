@@ -6,7 +6,6 @@ import {
   tagGroups, validateSet, type DistanceUnit, type Exercise, type ExerciseChoice, type ExerciseNote, type ExerciseTag,
   type LedgerData, type Measurement, type WeightUnit, type WorkoutChange, type WorkoutFile, type WorkoutSet,
 } from './model.ts';
-import { parseWorkoutPlan } from './workout-plan.ts';
 
 export const maxPlanBytes = 512 * 1024;
 
@@ -54,14 +53,6 @@ export interface ExerciseEditInput {
 export function isWorkoutPlanPath(path: string, root = journalFolder): boolean {
   return !path.split('/').some((part) => part.startsWith('.')) &&
     !['Exercises', 'Exports', 'Workouts'].some((folder) => path.startsWith(`${root}/${folder}/`));
-}
-
-export function planNoteFrom(path: string, markdown: string, exercises: readonly ExerciseChoice[], includeInvalid = false): PlanNote | undefined {
-  if (!includeInvalid && (!/^ {0,3}##\s+\S/m.test(markdown) || !/^ {0,3}###\s+\S/m.test(markdown))) return;
-  const result = parseWorkoutPlan(markdown, exercises);
-  if (result.plan || includeInvalid || /(?:plan|routine|superset|workout)/i.test(path)) {
-    return { path, title: result.plan?.title ?? path.slice(path.lastIndexOf('/') + 1, -3) };
-  }
 }
 
 export function exerciseProgress(data: LedgerData, exerciseId: string | null, unit: WeightUnit) {

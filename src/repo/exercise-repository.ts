@@ -6,7 +6,8 @@ import {
   combineAliases, errorMessage, exerciseFrontmatter, isRecord, makeId, nameKey, readExercise,
   type Exercise, type ExerciseDetails, type ExerciseNote,
 } from '../model.ts';
-import { ensureFolder, isRecordPath, readRecords, uniqueRecords, type LedgerVault } from './vault-records.ts';
+import { ensureFolder, isRecordPath, readRecords, uniqueRecords, visibleFileRevision, type LedgerVault } from './vault-records.ts';
+import type { RecordRevisions } from './workout-snapshot.ts';
 
 export function affectsExerciseNotes(file: TAbstractFile, root: string, path = file.path): boolean {
   if (file instanceof TFile) return isRecordPath(path, root, 'Exercises') && path.endsWith('.md');
@@ -106,11 +107,12 @@ export class ExerciseRepository {
     return { renamed, guidesAdded, issues };
   }
 
-  async read(issues: string[] = []): Promise<ExerciseNote[]> {
-    const paths = this.exercisePaths(`${this.root}/Exercises`);
+  async read(issues: string[] = [], revisions?: RecordRevisions): Promise<ExerciseNote[]> {
+    const paths = this.paths();
     const exercises = await readRecords(paths, async (path) => {
       const file = this.vault.getFileByPath(path);
       if (!file) throw new Error('Exercise note moved while loading.');
+      revisions?.set(path, visibleFileRevision(file));
       const exercise = readCatalogExercise(noteProperties(await this.vault.cachedRead(file)));
       return exercise ? { ...exercise, path } : null;
     }, issues);
@@ -165,7 +167,8 @@ export class ExerciseRepository {
     return added;
   }
 
-  private exercisePaths(path: string): string[] {
+  paths(): string[] {
+    const path = `${this.root}/Exercises`;
     const folder = this.vault.getAbstractFileByPath(path);
     if (!folder) return [];
     if (!(folder instanceof TFolder)) throw new Error(`Expected a folder at ${path}.`);
