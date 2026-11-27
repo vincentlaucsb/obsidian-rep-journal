@@ -4,6 +4,9 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern-view > .view-content.rep-journal-modern-content { padding: 0; }
 .rep-journal-modern.rep-journal-standalone { min-height: 100dvh; }
 
+/* Obsidian reserves space for its hidden view header on phones. */
+.is-phone .rep-journal-modern-view { --view-top-spacing: 0px; }
+
 .is-phone.is-floating-nav .rep-journal-modern-view .rep-journal-modern {
   --journal-bottom-inset: max(env(safe-area-inset-bottom), calc(
     var(--view-bottom-spacing, 0px) + max(0px, calc(var(--navbar-bottom-offset, 0px) - 2px))
@@ -109,7 +112,7 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
   padding-left: max(var(--content-padding), env(safe-area-inset-left));
   padding-right: max(var(--content-padding), env(safe-area-inset-right));
 }
-.rep-journal-modern .masthead-content { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding-block: max(.48rem, env(safe-area-inset-top)) .48rem; }
+.rep-journal-modern .masthead-content { display: flex; justify-content: space-between; align-items: center; gap: .5rem; padding-block: max(.48rem, var(--safe-area-inset-top, env(safe-area-inset-top))) .48rem; }
 .rep-journal-modern button.wordmark {
   min-width: 0;
   height: auto;

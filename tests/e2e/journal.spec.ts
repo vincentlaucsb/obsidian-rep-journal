@@ -452,6 +452,40 @@ test('fills the pane and insets the header controls and workout content', async 
   }
 });
 
+test('starts the phone journal at the top of the leaf with room for the safe area', async ({ obsidian: { page } }) => {
+  await page.getByLabel('Open workout log', { exact: true }).click();
+  const leaf = page.locator('.rep-journal-modern-view');
+  await expect(leaf.locator('.masthead')).toBeVisible();
+  await leaf.evaluate((view) => {
+    view.style.width = '380px';
+    view.closest('.workspace-tabs')?.classList.add('mod-visible');
+  });
+  for (const mode of ['is-floating-nav', 'auto-full-screen']) {
+    for (const inset of [0, 24]) {
+      const layout = await leaf.evaluate((view, { mode, inset }) => {
+        const host = view.closest<HTMLElement>('.workspace');
+        if (!host) throw new Error('Missing Obsidian workspace');
+        host.classList.remove('is-floating-nav', 'auto-full-screen');
+        host.classList.add('is-mobile', 'is-phone', mode);
+        host.style.setProperty('--safe-area-inset-top', `${inset}px`);
+        host.style.setProperty('--view-header-height', '44px');
+        const header = view.querySelector('.masthead');
+        const button = header?.querySelector('button');
+        if (!header || !button) throw new Error('Missing journal toolbar');
+        return {
+          width: header.getBoundingClientRect().width,
+          gap: header.getBoundingClientRect().top - view.getBoundingClientRect().top,
+          padding: button.getBoundingClientRect().top - header.getBoundingClientRect().top,
+        };
+      }, { mode, inset });
+      expect(layout.width).toBe(380);
+      expect(layout.gap).toBe(0);
+      expect(layout.padding).toBeGreaterThanOrEqual(inset);
+      expect(layout.padding).toBeLessThanOrEqual(Math.max(12, inset));
+    }
+  }
+});
+
 test('logs, charts, and restores a weighted set offline', { tag: '@offline-chart' }, async ({ obsidian: { page, vault } }) => {
   const requests: string[] = [];
   await page.context().route(/^https?:\/\//, async (route) => {
