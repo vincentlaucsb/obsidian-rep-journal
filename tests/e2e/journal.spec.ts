@@ -5,6 +5,13 @@ import { journalSettingsFile } from '../../src/journal-paths.ts';
 import { createWorkout, localDate, makeId, parseWorkout } from '../../src/model.ts';
 import { exerciseId, exerciseName, test } from './obsidian.ts';
 
+declare global {
+  interface Window {
+    // Obsidian 1.15 dispatches terminal commands here after selecting the target vault.
+    handleCli(args: string[]): Promise<string>;
+  }
+}
+
 test('installs the bundled Garmin prompt from settings', async ({ obsidian: { page, vault } }) => {
   const button = page.locator('.clickable-icon:has(.lucide-settings)').filter({ visible: true });
   const [settings] = await Promise.all([page.context().waitForEvent('page'), button.click()]);
@@ -457,7 +464,7 @@ test('starts the phone journal at the top of the leaf with room for the safe are
   const leaf = page.locator('.rep-journal-modern-view');
   await expect(leaf.locator('.masthead')).toBeVisible();
   await leaf.evaluate((view) => {
-    view.style.width = '380px';
+    view.setCssProps({ width: '380px' });
     view.closest('.workspace-tabs')?.classList.add('mod-visible');
   });
   for (const mode of ['is-floating-nav', 'auto-full-screen']) {
@@ -467,8 +474,7 @@ test('starts the phone journal at the top of the leaf with room for the safe are
         if (!host) throw new Error('Missing Obsidian workspace');
         host.classList.remove('is-floating-nav', 'auto-full-screen');
         host.classList.add('is-mobile', 'is-phone', mode);
-        host.style.setProperty('--safe-area-inset-top', `${inset}px`);
-        host.style.setProperty('--view-header-height', '44px');
+        host.setCssProps({ '--safe-area-inset-top': `${inset}px`, '--view-header-height': '44px' });
         const header = view.querySelector('.masthead');
         const button = header?.querySelector('button');
         if (!header || !button) throw new Error('Missing journal toolbar');
@@ -551,6 +557,13 @@ test('logs, charts, and restores a weighted set offline', { tag: '@offline-chart
   const detail = journal.locator('.strength-chart-detail');
   await expect(detail).toContainText('Estimated 1RM 157.5 lb');
   await expect(detail).toContainText('Logged set · 5 reps · 135 lb');
+  const report: unknown = JSON.parse(await page.evaluate(async ({ exerciseName, date }) =>
+    window.handleCli(['rep-journal:progress', `exercise=${exerciseName}`, `since=${date}`, 'format=json']),
+  { exerciseName, date: workout.date }));
+  expect(report).toMatchObject({
+    exercise: { id: exerciseId, name: exerciseName }, unit: 'lb', issues: [],
+    sessions: [{ id: workout.id, sets: workout.sets, estimatedMax: { value: 157.5, setIndex: 0 }, personalRecordIndices: [] }],
+  });
   await expect(page.locator('html')).toHaveAttribute('data-chart-fetch-count', '0');
   expect(requests).toEqual([]);
   await journal.getByRole('button', { name: 'Back to workout', exact: true }).click();

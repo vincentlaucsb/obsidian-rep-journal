@@ -1,15 +1,16 @@
-import { FileSystemAdapter, MarkdownView, Notice, Platform, Plugin, PluginSettingTab, Setting, TFolder, type Events, type SettingDefinitionItem, type TAbstractFile, type TFile, type WorkspaceLeaf } from 'obsidian';
-import { isWorkoutFilePath, journalFolder, journalSettingsFile, normalizeJournalFolder, parseJournalFolder, parseJournalSettings, readMeasurementSystem } from './journal-paths.ts';
+import { FileSystemAdapter, MarkdownView, Notice, Platform, Plugin, PluginSettingTab, requireApiVersion, Setting, TFolder, type Events, type SettingDefinitionItem, type TAbstractFile, type TFile, type WorkspaceLeaf } from 'obsidian';
+import { isWorkoutFilePath, journalFolder, journalSettingsFile, normalizeJournalFolder, parseJournalSettings, readJournalFolder, readMeasurementSystem } from './journal-paths.ts';
 import { writeDesktopJournalSettings } from './desktop-journal-settings.ts';
 import { errorMessage, isRecord, isUnit, makeId, type ExerciseNote, type WeightUnit } from './model.ts';
 import { MODERN_JOURNAL_VIEW, ModernJournalView, type JournalScreen } from './modern-journal-view.ts';
 import { createObsidianJournalAdapter } from './obsidian-journal-adapter.ts';
 import { drawObsidianStrengthChart } from './obsidian-strength-chart.ts';
+import { runProgressCli } from './progress-cli.ts';
 import { affectsExerciseNotes } from './repo/exercise-repository.ts';
 import { affectsDatedPlanFolder, datedPlanDate } from './repo/plan-repository.ts';
 import { LedgerRepository } from './repository.ts';
 import { excludesWorkoutJson, jsonSyncSetting, mountSyncIndicator } from './obsidian-sync.ts';
-import { defaultMeasurementSystem, isMeasurementSystem, type MeasurementSystem } from './units.ts';
+import { defaultMeasurementSystem, isMeasurementSystem, journalWeightUnit, type MeasurementSystem } from './units.ts';
 import { installGarminPrompt } from './garmin-prompt.ts';
 import garminPrompt from '../prompts/rep-journal-garmin/SKILL.md';
 
@@ -41,16 +42,16 @@ export default class RepJournalPlugin extends Plugin {
   async onload(): Promise<void> {
     const stored: unknown = await this.loadData();
     if (isRecord(stored)) this.preferences = stored;
-    const vault = this.app.vault;
     try {
-      const text = await vault.adapter.exists(journalSettingsFile) ? await vault.adapter.read(journalSettingsFile) : '{}';
-      const folder = parseJournalFolder(text);
-      this.sharedMeasurementSystem = readMeasurementSystem(parseJournalSettings(text), defaultMeasurementSystem(this.weightUnit));
+      const settings = await this.readJournalSettings();
+      const folder = readJournalFolder(settings);
+      this.sharedMeasurementSystem = readMeasurementSystem(settings, defaultMeasurementSystem(this.weightUnit));
       this.repository = this.createRepository(folder);
     } catch (error: unknown) {
       new Notice(`Could not read ${journalSettingsFile}. ${errorMessage(error)}`);
     }
     this.adapter = this.createAdapter();
+    this.registerProgressCli();
     const createJournalView = (leaf: WorkspaceLeaf): ModernJournalView =>
       new ModernJournalView(leaf, this.adapter, this.manifest.name);
     this.registerView(MODERN_JOURNAL_VIEW, createJournalView);
@@ -81,6 +82,21 @@ export default class RepJournalPlugin extends Plugin {
       if (this.repository) void this.tidyExerciseNotes(this.repository);
       else new Notice('Set a valid journal folder in the plugin settings.');
     } });
+  }
+
+  private registerProgressCli(): void {
+    if (requireApiVersion('1.12.2')) {
+      this.registerCliHandler('rep-journal:progress', 'Read exercise progress from the journal', {
+        exercise: { value: '<name, alias, or ID>', description: 'Exercise to look up', required: true },
+        since: { value: '<YYYY-MM-DD>', description: 'Include sessions on or after this date' },
+        format: { value: 'text|json', description: 'Output format (default: text)' },
+      }, ({ exercise, since, format }) => runProgressCli({ exercise, since, format }, async () => {
+        const settings = await this.readJournalSettings();
+        const repository = this.createRepository(readJournalFolder(settings));
+        const unit = journalWeightUnit(readMeasurementSystem(settings, defaultMeasurementSystem(this.weightUnit)));
+        return { data: await repository.read({ fresh: true }), unit };
+      }));
+    }
   }
 
   private createRepository(root: string): LedgerRepository {
