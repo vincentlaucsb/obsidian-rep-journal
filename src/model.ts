@@ -70,6 +70,7 @@ export type ExerciseChoice = Exercise & {
 
 export interface WorkoutSet {
   id: string;
+  loggedAt?: string;
   exerciseId: string;
   exerciseName: string;
   reps?: number;
@@ -121,7 +122,7 @@ export function isDate(value: unknown): value is string {
   return Number.isFinite(date.valueOf()) && date.toISOString().slice(0, 10) === value;
 }
 
-function isTimestamp(value: unknown): value is string {
+export function isTimestamp(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const timestamp = new Date(value);
   return Number.isFinite(timestamp.valueOf()) && timestamp.toISOString() === value;
@@ -232,6 +233,7 @@ function isLoad(value: unknown): value is SetLoad {
 
 function isSet(value: unknown): value is WorkoutSet {
   return isRecord(value) && isId(value.id) && isId(value.exerciseId) && isName(value.exerciseName) &&
+    (value.loggedAt === undefined || isTimestamp(value.loggedAt)) &&
     typeof value.warmup === 'boolean' &&
     (value.reps === undefined || (typeof value.reps === 'number' && Number.isInteger(value.reps) && value.reps >= 1 && value.reps <= 1000)) &&
     (value.load === undefined || isLoad(value.load)) &&
@@ -283,8 +285,19 @@ export function createWorkout(date: string): Workout {
   return { schemaVersion: LEGACY_SCHEMA_VERSION, id: makeId(), date, createdAt: new Date().toISOString(), notes: '', sets: [] };
 }
 
-export function compareWorkouts(a: Workout, b: Workout): number {
-  return a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+function workoutStart(workout: Workout): number {
+  // Imported sessions can have been created after their recorded sets.
+  let start = Date.parse(workout.createdAt);
+  for (const { loggedAt } of workout.sets) {
+    if (loggedAt) start = Math.min(start, Date.parse(loggedAt));
+  }
+  return start;
+}
+
+export function compareWorkouts(a: Workout, b: Workout, preferredId?: string | null): number {
+  return a.date.localeCompare(b.date) || workoutStart(a) - workoutStart(b) ||
+    Number(a.id === preferredId) - Number(b.id === preferredId) ||
+    a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 }
 
 export function changeWorkout(workout: Workout, change: WorkoutChange): Workout {
@@ -309,7 +322,11 @@ export function changeWorkout(workout: Workout, change: WorkoutChange): Workout 
     if (change.set.id !== change.original.id || change.set.exerciseId !== change.original.exerciseId) {
       throw new Error('Set and exercise IDs are fixed.');
     }
-    sets[index] = validateSet(change.set);
+    const set = { ...change.set };
+    const loggedAt = workout.sets[index].loggedAt;
+    if (loggedAt === undefined) delete set.loggedAt;
+    else set.loggedAt = loggedAt;
+    sets[index] = validateSet(set);
   }
   const schemaVersion = change.kind === 'edit' && !fitsLegacySchema(change.set) ? SCHEMA_VERSION : workout.schemaVersion;
   return { ...workout, schemaVersion, sets };

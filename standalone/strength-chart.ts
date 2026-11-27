@@ -59,7 +59,7 @@ export function strengthChartAxis(start: number, end: number, width: number): {
 export function mountStrengthChart(
   section: HTMLElement, points: readonly TrendPoint[], unit: WeightUnit, today: string,
   drawChart: (host: HTMLElement, options: LineChartOptions) => Promise<SVGSVGElement>,
-  createElement: CreateJournalElement,
+  createElement: CreateJournalElement, initialSessionId?: string,
 ): () => void {
   const document = section.ownerDocument;
   const create = <Tag extends keyof HTMLElementTagNameMap>(name: Tag, text?: string): HTMLElementTagNameMap[Tag] => {
@@ -95,6 +95,7 @@ export function mountStrengthChart(
   const detail = create('p');
   detail.className = 'strength-chart-detail';
   detail.setAttribute('aria-live', 'polite');
+  detail.setAttribute('aria-atomic', 'true');
   controls.append(previous, next, detail);
   section.append(rangePicker, plot, status, controls);
 
@@ -107,6 +108,7 @@ export function mountStrengthChart(
   let width = 0;
   let pending = 0;
   let mounted = true;
+  const initialPoint = points.find(({ sessionId }) => sessionId === initialSessionId) ?? points.at(-1);
 
   function select(index: number) {
     if (index < 0 || index >= visible.length) return;
@@ -115,14 +117,17 @@ export function mountStrengthChart(
     markers[selected]?.classList.add('is-selected');
     const point = visible[selected];
     const session = point.number ? ` · Session ${point.number}` : '';
-    detail.textContent = `${point.date}${session} · ${point.value.toFixed(1)} ${unit} · ${point.set}`;
+    detail.replaceChildren(
+      create('strong', `Estimated 1RM ${point.value.toFixed(1)} ${unit}`), ` · ${point.date}${session}`,
+      create('br'), `Logged set · ${point.set}`,
+    );
     previous.disabled = selected === 0;
     next.disabled = selected === visible.length - 1;
   }
 
   function selectRange(nextRange: StrengthChartRange) {
     if (range === nextRange) return;
-    const sessionId = visible[selected]?.sessionId;
+    const sessionId = range === undefined ? initialPoint?.sessionId : visible[selected]?.sessionId;
     range = nextRange;
     const period = strengthChartRange(points, today, range);
     visible = period.points;
@@ -184,7 +189,8 @@ export function mountStrengthChart(
   const ResizeObserver = document.defaultView?.ResizeObserver;
   const observer = ResizeObserver && new ResizeObserver(() => { void render(); });
   observer?.observe(section);
-  selectRange('1Y');
+  const initialYear = strengthChartRange(points, today, '1Y');
+  selectRange(initialPoint && !initialYear.points.includes(initialPoint) ? 'Max' : '1Y');
   return () => {
     mounted = false;
     observer?.disconnect();

@@ -16,6 +16,38 @@ export interface StrengthPoint {
   value: number;
 }
 
+export function exactRepRecords(workouts: readonly Workout[], exerciseId?: string): Map<string, Set<WorkoutSet>> {
+  const best = new Map<string, { value: number; unit: WeightUnit }>();
+  const records = new Map<string, Set<WorkoutSet>>();
+  for (const workout of [...workouts].sort(compareWorkouts)) {
+    for (const set of workout.sets) {
+      const { load, reps } = set;
+      if (set.warmup || (exerciseId !== undefined && set.exerciseId !== exerciseId) || !reps ||
+        (load?.mode !== 'weight' && load?.mode !== 'added') || load.value <= 0) continue;
+      const key = JSON.stringify([set.exerciseId, load.mode, reps]);
+      const previous = best.get(key);
+      if (previous) {
+        const weight = convertWeight(load.value, load.unit, previous.unit);
+        // Unit conversion can move an exact tie by one floating-point step.
+        const tolerance = load.unit === previous.unit ? 0 : Math.max(weight, previous.value) * Number.EPSILON;
+        if (weight - previous.value <= tolerance) continue;
+      }
+      best.set(key, load);
+      if (previous === undefined) continue;
+      const earned = records.get(workout.id) ?? new Set<WorkoutSet>();
+      earned.add(set);
+      records.set(workout.id, earned);
+    }
+  }
+  return records;
+}
+
+export function exactRepRecordIds(workouts: readonly Workout[]): Record<string, string[]> {
+  return Object.fromEntries([...exactRepRecords(workouts)].map(([workoutId, sets]) => [
+    workoutId, [...sets].map(({ id }) => id),
+  ]));
+}
+
 export function exerciseHistory(workouts: Workout[], exerciseId: string): ExerciseSession[] {
   return workouts
     .map((workout) => ({ workout, sets: workout.sets.filter((set) => set.exerciseId === exerciseId) }))

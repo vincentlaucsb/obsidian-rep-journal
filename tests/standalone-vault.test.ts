@@ -110,7 +110,9 @@ void test('standalone workout changes reuse the validated ledger and refresh whe
   };
   const errors: string[] = [];
   const report = (error?: string) => { if (error) errors.push(error); };
-  const saved = await saveStandaloneSet(store, { date, workoutId: null, exerciseId: exercise.id, setId: makeId(), values: { weight: 65, reps: 6 } }, date, 'lb', report);
+  const saved = await saveStandaloneSet(store, {
+    date, selectedDate: true, workoutId: null, exerciseId: exercise.id, setId: makeId(), values: { weight: 65, reps: 6 },
+  }, 'lb', report);
   assert.equal(reads, 1);
   assert.equal(await readFile(csvPath, 'utf8'), toCsv((await readImportVault(root, folder)).data));
 

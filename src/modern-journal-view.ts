@@ -93,6 +93,10 @@ export class ModernJournalView extends ItemView {
     await this.journal?.refreshVaultNotes();
   }
 
+  async refreshWorkoutFiles(paths: string[]): Promise<void> {
+    await this.journal?.refreshWorkoutFiles(paths);
+  }
+
   setMeasurementSystem(system: MeasurementSystem): void { this.journal?.setMeasurementSystem(system); }
 
   async refresh(): Promise<void> {

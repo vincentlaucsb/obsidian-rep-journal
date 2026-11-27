@@ -79,10 +79,17 @@ async function exerciseDatedPlans(page: Page, vault: string, sessionId: string, 
   await expect(secondary).toContainText(`Up next · ${rowName}`);
 
   await journal.getByLabel('Workout session', { exact: true }).selectOption(sessionId);
+  await control('Menu').click();
+  await control('Export').click();
+  await control('Back to workout').click();
+  await expect(journal.getByLabel('Workout session', { exact: true })).toHaveValue(sessionId);
   await primary.getByRole('button', { name: `Start ${exerciseName}`, exact: true }).click();
   await journal.getByLabel('Weight (lb)', { exact: true }).fill('135');
   await journal.getByLabel('Reps', { exact: true }).fill('5');
-  await control('Log set →').click();
+  await control('Log set').click();
+  await expect(journal.getByRole('heading', { name: rowName, exact: true })).toBeVisible();
+  await expect(journal.locator('.entry-form [role="status"]')).toContainText(exerciseName);
+  await control('← Workout log').click();
   await expect(control(`Edit set 1 for ${exerciseName}`)).toBeVisible();
   await expect(journal.getByLabel('Workout session', { exact: true })).toHaveValue(sessionId);
   await expect(primary).toContainText(`Up next · ${rowName}`);

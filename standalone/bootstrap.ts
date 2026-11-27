@@ -21,6 +21,26 @@ function post<T>(path: string, input: unknown): Promise<T> {
 }
 
 mountJournal(root, {
+  watchWorkoutFiles(onArrival) {
+    const cancel = new AbortController();
+    let previous = new Set<string>();
+    let timer: number;
+    const check = async () => {
+      try {
+        if (document.hidden) return;
+        const paths = await request<string[]>('/api/workout-files', { signal: cancel.signal });
+        const added = paths.filter((path) => !previous.has(path));
+        if (added.length && !cancel.signal.aborted) await onArrival(added);
+        previous = new Set(paths);
+      } catch {
+        // A temporarily unavailable server will be checked again with the previous listing.
+      } finally {
+        if (!cancel.signal.aborted) timer = browser.setTimeout(() => { void check(); }, 3000);
+      }
+    };
+    void check();
+    return () => { cancel.abort(); browser.clearTimeout(timer); };
+  },
   loadJournal: () => request('/api/journal'),
   saveMeasurementSystem: async (measurementSystem) => { await post('/api/settings', { measurementSystem }); },
   enablePopover: async () => {

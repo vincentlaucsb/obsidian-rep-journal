@@ -1,5 +1,5 @@
-import { FileSystemAdapter, MarkdownView, Notice, Platform, Plugin, PluginSettingTab, Setting, TFolder, type SettingDefinitionItem, type TAbstractFile, type TFile, type WorkspaceLeaf } from 'obsidian';
-import { journalFolder, journalSettingsFile, normalizeJournalFolder, parseJournalFolder, parseJournalSettings, readMeasurementSystem } from './journal-paths.ts';
+import { FileSystemAdapter, MarkdownView, Notice, Platform, Plugin, PluginSettingTab, Setting, TFolder, type Events, type SettingDefinitionItem, type TAbstractFile, type TFile, type WorkspaceLeaf } from 'obsidian';
+import { isWorkoutFilePath, journalFolder, journalSettingsFile, normalizeJournalFolder, parseJournalFolder, parseJournalSettings, readMeasurementSystem } from './journal-paths.ts';
 import { writeDesktopJournalSettings } from './desktop-journal-settings.ts';
 import { errorMessage, isRecord, isUnit, makeId, type ExerciseNote, type WeightUnit } from './model.ts';
 import { MODERN_JOURNAL_VIEW, ModernJournalView, type JournalScreen } from './modern-journal-view.ts';
@@ -8,6 +8,7 @@ import { drawObsidianStrengthChart } from './obsidian-strength-chart.ts';
 import { affectsExerciseNotes } from './repo/exercise-repository.ts';
 import { affectsDatedPlanFolder, datedPlanDate } from './repo/plan-repository.ts';
 import { LedgerRepository } from './repository.ts';
+import { excludesWorkoutJson, jsonSyncSetting, mountSyncIndicator } from './obsidian-sync.ts';
 import { defaultMeasurementSystem, isMeasurementSystem, type MeasurementSystem } from './units.ts';
 import { installGarminPrompt } from './garmin-prompt.ts';
 import garminPrompt from '../prompts/rep-journal-garmin/SKILL.md';
@@ -106,7 +107,8 @@ export default class RepJournalPlugin extends Plugin {
       reportExportError: (error) => { new Notice(`Could not update the automatic CSV. ${errorMessage(error)}`); },
       openExerciseNote: (exercise) => { void this.openExerciseNote(exercise); },
     });
-    return { ...adapter, drawStrengthChart: drawObsidianStrengthChart };
+    return { ...adapter, drawStrengthChart: drawObsidianStrengthChart,
+      mountSyncIndicator: (nav: HTMLElement) => mountSyncIndicator(this.app, nav) };
   }
 
   private journalViews(): ModernJournalView[] {
@@ -176,13 +178,32 @@ export default class RepJournalPlugin extends Plugin {
         (file instanceof TFolder ? affectsDatedPlanFolder(path, root) : !!datedPlanDate(path, root)));
     };
     const onChange = (file: TAbstractFile): void => { if (affects(file)) refresh(); };
+    let workoutTimer: number | undefined;
+    const arrivals = new Set<string>();
+    const onWorkoutPath = (path: unknown): void => {
+      if (typeof path !== 'string' || !this.repository || !isWorkoutFilePath(path, this.repository.root)) return;
+      arrivals.add(path);
+      if (workoutTimer !== undefined) return;
+      workoutTimer = hostWindow.setTimeout(() => {
+        workoutTimer = undefined;
+        const paths = [...arrivals];
+        arrivals.clear();
+        for (const view of this.journalViews()) void view.refreshWorkoutFiles(paths);
+      }, 150);
+    };
+    // Raw adapter notifications also cover files absent from Obsidian's file index.
+    const events: Events = vault;
+    this.registerEvent(events.on('raw', onWorkoutPath));
+    this.registerEvent(vault.on('create', (file) => onWorkoutPath(file.path)));
     this.registerEvent(vault.on('create', onChange));
     this.registerEvent(vault.on('modify', onChange));
     this.registerEvent(vault.on('delete', onChange));
     this.registerEvent(vault.on('rename', (file, oldPath) => {
+      onWorkoutPath(file.path);
       if (affects(file) || affects(file, oldPath)) refresh();
     }));
     this.register(() => hostWindow.clearTimeout(timer));
+    this.register(() => hostWindow.clearTimeout(workoutTimer));
   }
 
   private async tidyExerciseNotes(repository: LedgerRepository): Promise<void> {
@@ -262,6 +283,7 @@ class RepJournalSettings extends PluginSettingTab {
 
   getSettingDefinitions(): SettingDefinitionItem[] {
     return [
+      { ...jsonSyncSetting, visible: () => excludesWorkoutJson(this.app) },
       { ...folderSetting, render: (setting) => { this.addJournalFolderControl(setting); } },
       { ...measurementSetting, render: (setting) => { this.addMeasurementSystemControl(setting); } },
       ...(Platform.isDesktop ? [{ ...garminSetting, render: (setting: Setting) => { this.addGarminControl(setting); } }] : []),
@@ -270,6 +292,7 @@ class RepJournalSettings extends PluginSettingTab {
 
   display(): void {
     this.containerEl.empty();
+    if (excludesWorkoutJson(this.app)) new Setting(this.containerEl).setName(jsonSyncSetting.name).setDesc(jsonSyncSetting.desc);
     this.addJournalFolderControl(new Setting(this.containerEl).setName(folderSetting.name).setDesc(folderSetting.desc));
     this.addMeasurementSystemControl(new Setting(this.containerEl).setName(measurementSetting.name).setDesc(measurementSetting.desc));
     if (Platform.isDesktop) this.addGarminControl(new Setting(this.containerEl).setName(garminSetting.name).setDesc(garminSetting.desc));

@@ -49,7 +49,9 @@ test('displays preferred cardio units and edits recorded values in their origina
   await journal.getByLabel('Time (seconds or mm:ss)', { exact: true }).fill('20:00');
   await journal.getByLabel('Distance (mi)', { exact: true }).fill('4.251');
   await expect(journal.getByLabel('Elevation gain (ft)', { exact: true })).toHaveValue('');
-  await journal.getByRole('button', { name: 'Log set →', exact: true }).click();
+  await journal.getByRole('button', { name: 'Log set', exact: true }).click();
+  await expect(journal.locator('.session-reference').first().getByRole('listitem').last()).toContainText('4.25 mi');
+  await journal.getByRole('button', { name: '← Workout log', exact: true }).click();
   await expect(journal.getByText('4.25 mi', { exact: true })).toBeVisible();
   const [, logged] = parseWorkout(await readFile(join(vault, path), 'utf8')).sets;
   expect(logged.distance).toEqual({ value: 4.251, unit: 'mi' });
@@ -95,6 +97,18 @@ ${frontmatter}---
   await expect(journal.getByText('1986.83 m', { exact: true })).toBeVisible();
   expect(await readFile(join(vault, path), 'utf8')).toBe(original);
 
+  await journal.getByRole('button', { name: `Log another set for ${exerciseName}`, exact: true }).click();
+  const kg = journal.getByLabel('Weight (kg)', { exact: true });
+  await kg.fill('2.01');
+  await journal.getByLabel('Distance (m)', { exact: true }).fill('100');
+  const addKg = journal.getByRole('button', { name: 'Add 22.5 kg', exact: true });
+  await addKg.click();
+  await expect(kg).toHaveValue('24.51');
+  await addKg.click();
+  await expect(kg).toHaveValue('47.01');
+  await journal.getByRole('button', { name: '← Workout log', exact: true }).click();
+  expect(await readFile(join(vault, path), 'utf8')).toBe(original);
+
   const { server, origin } = await startStandalone(vault, 0);
   try {
     const response = await page.request.get(`${origin}/api/journal`);
@@ -119,5 +133,6 @@ ${frontmatter}---
   await journal.getByRole('button', { name: `Log another set for ${exerciseName}`, exact: true }).click();
   await expect(journal.getByLabel('Distance (km)', { exact: true })).toBeVisible();
   await expect(journal.getByLabel('Elevation gain (m)', { exact: true })).toBeVisible();
-  await expect(journal.getByLabel('Weight (lb)', { exact: true })).toBeVisible();
+  await journal.getByRole('button', { name: 'Add 45 lb', exact: true }).click();
+  await expect(journal.getByLabel('Weight (lb)', { exact: true })).toHaveValue('125.123');
 });

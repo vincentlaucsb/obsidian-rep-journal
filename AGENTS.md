@@ -7,3 +7,4 @@
 - The standalone server, import CLI, and unit tests run TypeScript directly in Node. Use erasable TypeScript syntax in their import graphs and exercise the Node entry point when moving code shared with the bundled plugin.
 - Round measurements for display only. Preserve recorded units and precision when editing, importing, backfilling, or exporting. Test a read-only preview and a no-op retry through the CLI after changing a backfill.
 - Keep the plugin in the local `dev-vault/` test repository current during active development. Use `npm run dev` while editing or run `npm run build` after changes. Both copy the successful build, manifest, and stylesheet to the test vault. Keep its workouts and Obsidian settings when updating the plugin.
+- When the dev vault is open, run `obsidian vault=dev-vault reload` after each visible change has built and verify the updated screen before moving on.

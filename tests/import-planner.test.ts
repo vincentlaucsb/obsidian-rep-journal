@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { toJson } from '../src/exports.ts';
 import {
   exerciseFrontmatter, parseWorkout, readExercise, type ExerciseNote, type LedgerData,
 } from '../src/model.ts';
@@ -50,6 +51,25 @@ void test('LLM-shaped imports use exact aliases, preserve measurement units, and
     ...empty, exercises: renamed, workouts: [{ path: `Workouts/${date}.json`, workout }],
   });
   assert.deepEqual(resumed, { issues: [], exercises: [], workouts: [], skippedWorkoutIds: [workout.id] });
+});
+
+void test('workout JSON round trips supplied set timestamps and leaves untimed sets alone', async () => {
+  const exercises = [note('Press')];
+  const loggedAt = `${date}T08:30:00.000Z`;
+  const input = oneWorkout([{ exerciseId, reps: 5, loggedAt }, { exerciseId, reps: 6 }]);
+  const first = await planWorkoutImport(input, { ...empty, exercises });
+  assert.deepEqual(first.issues, []);
+  const [workout] = first.workouts;
+  assert.deepEqual(workout.sets.map((set) => set.loggedAt), [loggedAt, undefined]);
+  const ledger = { ...empty, exercises, workouts: [{ path: `Workouts/${date}.json`, workout }] };
+  const { workouts } = JSON.parse(toJson(ledger)) as { workouts: unknown };
+  const exported = { workouts };
+  const resumed = await planWorkoutImport(exported, ledger);
+  assert.deepEqual(resumed, { issues: [], exercises: [], workouts: [], skippedWorkoutIds: [workout.id] });
+  const copied = await planWorkoutImport(exported, { ...empty, exercises });
+  assert.deepEqual(copied.workouts, [workout]);
+  const invalid = await planWorkoutImport(oneWorkout([{ exerciseId, reps: 5, loggedAt: date }]), { ...empty, exercises });
+  assert.equal(invalid.issues[0]?.path, 'workouts[0].sets[0].loggedAt');
 });
 
 void test('unmatched or ambiguous exercises produce useful suggestions and unit errors point to the field', async () => {

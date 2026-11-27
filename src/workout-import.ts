@@ -1,7 +1,7 @@
 import { progressExercises } from './analytics.ts';
 import { starterExercises, suggestExercises } from './catalog.ts';
 import {
-  combineAliases, distanceUnits, isDate, isDistanceUnit, isElevationUnit, isId, isRecord, isUnit, measurements, nameKey,
+  combineAliases, distanceUnits, isDate, isDistanceUnit, isElevationUnit, isId, isRecord, isTimestamp, isUnit, measurements, nameKey,
   parseWorkout, SCHEMA_VERSION, setMeasurements,
   type DistanceUnit, type ElevationUnit, type Exercise, type ExerciseChoice, type LedgerData, type Measurement,
   type SetDistance, type SetElevationGain, type SetLoad, type Workout, type WorkoutSet,
@@ -37,7 +37,7 @@ const measurementKeys = Object.keys(measurements) as Measurement[];
 const rootFields = ['schemaVersion', 'exercises', 'workouts'];
 const exerciseFields = ['name', 'id', 'aliases', 'measurements', 'weightUnit', 'distanceUnit', 'elevationUnit'];
 const workoutFields = ['schemaVersion', 'id', 'date', 'createdAt', 'notes', 'sets'];
-const setFields = ['id', 'exerciseId', 'exerciseName', 'reps', 'load', 'durationSeconds', 'distance', 'elevationGain', 'warmup'];
+const setFields = ['id', 'exerciseId', 'exerciseName', 'reps', 'load', 'durationSeconds', 'distance', 'elevationGain', 'warmup', 'loggedAt'];
 
 class ExerciseIndex {
   readonly byId = new Map<string, ExerciseChoice>();
@@ -340,6 +340,10 @@ function readSet(
   checkFields(value, path, setFields, issues);
   const id = readId(value.id, `${path}.id`, issues);
   const exercise = resolveExercise(value, path, catalog, issues, fuzzyMatches);
+  const loggedAt = isTimestamp(value.loggedAt) ? value.loggedAt : undefined;
+  if (value.loggedAt !== undefined && !loggedAt) {
+    issue(issues, 'INVALID_TIMESTAMP', `${path}.loggedAt`, 'Use a UTC ISO timestamp such as 2026-11-20T08:30:00.000Z, or omit loggedAt.');
+  }
   const beforeMeasurements = issues.length;
   const reps = readInteger(value.reps, `${path}.reps`, 1000, issues);
   const durationSeconds = readInteger(value.durationSeconds, `${path}.durationSeconds`, Number.MAX_SAFE_INTEGER, issues);
@@ -355,16 +359,13 @@ function readSet(
   }
   if (exercise && issues.length === errorCount) {
     return { id, exerciseId: exercise.id, exerciseName: exercise.name, reps, load, durationSeconds, distance, elevationGain,
-      warmup: value.warmup === true };
+      warmup: value.warmup === true, ...(loggedAt && { loggedAt }) };
   }
 }
 
 function readCreatedAt(value: unknown, date: string | undefined, path: string, issues: ImportIssue[]): string | undefined {
   if (value === undefined) return date ? `${date}T00:00:00.000Z` : undefined;
-  if (typeof value === 'string') {
-    const instant = new Date(value);
-    if (Number.isFinite(instant.valueOf()) && instant.toISOString() === value) return value;
-  }
+  if (isTimestamp(value)) return value;
   issue(issues, 'INVALID_TIMESTAMP', path, 'Use a UTC ISO timestamp such as 2026-11-20T08:30:00.000Z, or omit createdAt.');
 }
 
@@ -376,7 +377,8 @@ function recordedMeasurements(set: DraftSet): unknown[] {
 }
 
 function setIdentity(set: DraftSet): unknown[] {
-  return [...recordedMeasurements(set), set.warmup];
+  const identity = [...recordedMeasurements(set), set.warmup];
+  return set.loggedAt ? [...identity, set.loggedAt] : identity;
 }
 
 function workoutIdentity(workout: Workout): string {

@@ -12,11 +12,13 @@ npm run standalone -- --vault "path/to/vault"
 
 Open [Rep Journal](http://127.0.0.1:4317) in a browser on the same computer. Use `--port 4320` for a different port. The legacy `--unit kg` flag selects Metric when the vault has no saved measurement system.
 
-**Today** groups logged sets by exercise. Select **Rep Journal** in the pinned header to return to Today. Use the arrows to step through sessions or open **Calendar** to choose a date. You can log sets and notes on an earlier date, including a day with no existing workout. When a date already has a session, choose **New workout** in the session picker to start another one.
+**Today** groups logged sets by exercise. With **Automatic** selected, your next set starts a new session when at least one hour has passed since the latest session’s last logged set. Editing a set or saving workout notes leaves that time alone. **New workout** starts a session immediately on your next save, then resumes automatic grouping. Choose an existing session to keep adding to it until you select **Automatic** or return to Today using **Rep Journal** in the header.
 
-Choose **Log set** to search by exercise name or alias and filter by grouped tags. Picking a starter exercise adds its Markdown note to the vault. You can also create a custom exercise from the picker. **Use last set** fills the compatible fields from the exercise's last session.
+Use the arrows to step through sessions or open **Calendar** to choose a date. The calendar outlines the selected date and fills today's date. On multi-session days, the calendar lists each session's exercises. The session picker and calendar also show the local times of the first and last sets when both are available. You can also log sets and notes on an earlier date and choose their session manually.
 
-Choose **Follow a plan** beside **Log set** on an empty day, or open **Menu → Plans** at any time. Once a plan is active, choose **Start** beside the next exercise in the plan or in the workout log to open its set form. Sets logged this way advance supersets. The regular **Log set** picker suggests the next exercise first, followed by the other exercises in the plan.
+Choose **Log set** to search by exercise name or alias and filter by grouped tags. Picking a starter exercise adds its Markdown note to the vault. You can also create a custom exercise from the picker. After saving a set, the form stays open for the next one. **Use last set** fills the compatible fields from the exercise's last session.
+
+Choose **Follow a plan** beside **Log set** on an empty day, or open **Menu → Plans** at any time. Once a plan is active, choose **Start** beside the next exercise in the plan or in the workout log to open its set form. In a superset, saving a set opens the next exercise's form. The regular **Log set** picker suggests the next exercise first, followed by the other exercises in the plan.
 
 Save a plan under your journal folder as `Plans/YYYY/YYYY-MM-DD.md` or `Plans/YYYY/YYYY-MM-DD - Title.md` to show it automatically on that date in the workout log, including dates you open from Calendar. Plans elsewhere are available through **Follow a plan** or **Menu → Plans**.
 
@@ -24,9 +26,9 @@ Use **Edit set** to correct or delete a set in any session, and **Workout notes*
 
 ## Progress and export
 
-In either app, open **Menu → Progress** to chart estimated 1RM by calendar date for sessions with an eligible strength set. It starts with the past year. Use **1W**, **1M**, **3M**, **6M**, **1Y**, or **Max** to change the chart range. Select a point or use **Previous** and **Next** to see the date, estimate and recorded set. Exercise history lists all recorded sets and keeps their logged units. Search by exercise name or alias and filter by grouped tags. **Edit exercise** opens the exercise settings.
+Open Progress from a workout to expand that session's history and select its estimated 1RM when available. **Menu → Progress** starts at the latest session. The chart opens on **1Y**, or **Max** if the selected point is older. Use the range controls, select a point, or use **Previous** and **Next** to see the date, estimate and recorded set. Exercise history lists all recorded sets and keeps their logged units. Trophy badges identify the rep count that earned a record, such as **8-rep PR**. Search by exercise name or alias and filter by grouped tags. **Edit exercise** opens the exercise settings.
 
-The 1RM chart uses [svgplot-wasm](https://www.npmjs.com/package/svgplot-wasm). Obsidian bundles the renderer in the plugin and the standalone app serves it locally.
+The 1RM chart runs locally. Obsidian embeds the svgplot WebAssembly renderer in the plugin. The standalone app serves the renderer from its local HTTP server. See [WASM source, checksum and offline verification](docs/WASM.md).
 
 In **Menu → Export**, **Export CSV** and **Export JSON** save dated copies in the journal folder's `Exports` subfolder. The fixed `rep-journal.csv` updates when you log or edit training data. Use **Refresh automatic CSV** to update it after external changes. **Prepare workout context** previews a date-filtered snapshot for your preferred LLM. You can add a training goal, equipment, days per week, and opt in to including workout notes before copying.
 
@@ -50,7 +52,7 @@ The plugin, standalone app, and importer use the same journal folder. It default
 
 Exercise definitions are Markdown notes in `Exercises`. New workouts are JSON files in `Workouts/YYYY`, with the year taken from the workout date. Existing workouts directly under `Workouts` remain available for reading and editing. If your records are under the former `Set Ledger` folder, set the journal folder to `Set Ledger` or move the records to your configured folder yourself.
 
-With Obsidian Sync, enable **Sync all other types** on each device so workouts travel with your exercise notes. Run **Refresh workout log** from Obsidian’s command palette to load changes after sync and update the automatic CSV. Obsidian Sync uses the latest modified version when a JSON file has conflicting edits. Enable **Show all file types** in Files and links to see exports in Obsidian’s file explorer. See [Obsidian Sync settings](https://obsidian.md/help/sync/settings) and the [data format](docs/DATA.md).
+With Obsidian Sync, enable **Sync all other types** on each device so workouts travel with your exercise notes. If a connected vault excludes JSON, Rep Journal shows a cloud warning in the journal header and its plugin settings. An open journal picks up new workout files automatically and preserves an entry you’re editing. Use **Refresh workout log** in Obsidian’s command palette to refresh manually and update the automatic CSV. Obsidian Sync uses the latest modified version when a JSON file has conflicting edits. Enable **Show all file types** in Files and links to see exports in Obsidian’s file explorer. See [Obsidian Sync settings](https://obsidian.md/help/sync/settings) and the [data format](docs/DATA.md).
 
 ## Install a local build
 

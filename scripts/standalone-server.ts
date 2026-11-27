@@ -14,7 +14,7 @@ import { errorMessage, isId, isRecord, isUnit, localDate, type WeightUnit } from
 import { DatedPlanRepository, PlanPickerRepository } from '../src/repo/plan-repository.ts';
 import type { RecordRevisions } from '../src/repo/workout-snapshot.ts';
 import { defaultMeasurementSystem, isMeasurementSystem, journalWeightUnit } from '../src/units.ts';
-import { readImportVault, readJournalFolder, readJournalSettingsBytes, resolveImportVaultRoot, updateJournalSettings } from './import-vault.ts';
+import { listWorkoutFiles, readImportVault, readJournalFolder, readJournalSettingsBytes, resolveImportVaultRoot, updateJournalSettings } from './import-vault.ts';
 import { svelteNotices, sveltePlugin } from './svelte-esbuild.ts';
 import {
   addStandaloneStarter, editStandaloneExercise, editStandaloneWorkout, listStandaloneDatedPlans, listStandalonePlans, readStandalonePlan, refreshStandaloneCsv, saveStandaloneExport,
@@ -126,7 +126,7 @@ export async function startStandalone(vault: string, port = 4317, unit: WeightUn
       }
       else if (url.pathname === '/api/sets') {
         const system = await loadMeasurementSystem();
-        json(response, 200, await saveStandaloneSet(store, input, localDate(), journalWeightUnit(system), reportAutomaticCsv, system));
+        json(response, 200, await saveStandaloneSet(store, input, journalWeightUnit(system), reportAutomaticCsv, system));
       }
       else if (url.pathname === '/api/context') {
         const context = readContextOptions(input);
@@ -143,6 +143,8 @@ export async function startStandalone(vault: string, port = 4317, unit: WeightUn
       }
     } else if (request.method !== 'GET') {
       json(response, 405, { error: 'Unsupported request.' });
+    } else if (url.pathname === '/api/workout-files') {
+      json(response, 200, await listWorkoutFiles(root, folder));
     } else if (url.pathname === '/api/journal') {
       const { data } = await store.read();
       const datedPlans = await listStandaloneDatedPlans(root, folder, data, plans);

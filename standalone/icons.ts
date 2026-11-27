@@ -38,8 +38,11 @@ SOFTWARE.
 
 const svgNamespace = 'http://www.w3.org/2000/svg';
 type IconShape = [tag: 'path' | 'rect' | 'line', attributes: Readonly<Record<string, string | number>>];
-type IconName = 'chart-line' | 'plus' | 'calendar' | 'dumbbell' | 'menu';
+type IconName = 'chart-line' | 'plus' | 'calendar' | 'dumbbell' | 'menu' | 'trophy';
 const icons: Record<IconName, IconShape[]> = {
+  trophy: [
+    ['path', { d: 'M8 3h8v6a4 4 0 0 1-8 0V3ZM8 5H4v1a4 4 0 0 0 4 4m8-5h4v1a4 4 0 0 1-4 4M12 13v4m-4 4v-1a3 3 0 0 1 3-3h2a3 3 0 0 1 3 3v1ZM6 21h12' }],
+  ],
   'chart-line': [['path', { d: 'M3 3v16a2 2 0 0 0 2 2h16' }], ['path', { d: 'm19 9-5 5-4-4-3 3' }]],
   plus: [['path', { d: 'M5 12h14' }], ['path', { d: 'M12 5v14' }]],
   calendar: [

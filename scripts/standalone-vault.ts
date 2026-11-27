@@ -8,9 +8,9 @@ import {
   ensureDirectory, exerciseNoteHeader, existingVaultFile, hasErrorCode, isInside, lockImportVault, readImportExercises, readImportVault,
   replaceVaultFile, unchangedImportVaultRecords, writeAutomaticCsv, writeImportVault, writeNewFile,
 } from './import-vault.ts';
-import { isWorkoutPlanPath, maxPlanBytes, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit, readLogSetInput, type PlanNote } from '../src/journal-workflow.ts';
+import { isWorkoutPlanPath, maxPlanBytes, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit, readLogSetInput, workoutSaveResult, type WorkoutSaveResult, type PlanNote } from '../src/journal-workflow.ts';
 import {
-  changeWorkout, createWorkout, errorMessage, exerciseFrontmatter, exerciseUnitFields, parseWorkout, type Exercise, type ExerciseNote, type LedgerData,
+  changeWorkout, createWorkout, errorMessage, exerciseFrontmatter, exerciseUnitFields, localDate, parseWorkout, type Exercise, type ExerciseNote, type LedgerData,
   type WeightUnit, type WorkoutChange, type WorkoutFile,
 } from '../src/model.ts';
 import { isPlanYear, type DatedPlanNote, type DatedPlanRepository, type PlanPickerRepository } from '../src/repo/plan-repository.ts';
@@ -177,21 +177,24 @@ async function writeWorkoutChange(
 }
 
 export function saveStandaloneSet(
-  store: StandaloneVault, input: unknown, today: string, unit: WeightUnit, reportAutomaticCsv: ReportAutomaticCsvError, system?: MeasurementSystem,
-): Promise<WorkoutFile> {
-  const request = readLogSetInput(input, today);
-  return withVaultEdit(store, reportAutomaticCsv, (vault) => {
-    const prepared = prepareLogSet(vault.data, request, unit, system);
-    if ('replay' in prepared) return Promise.resolve(prepared.replay);
-    return writeWorkoutChange(vault, request.date, { kind: 'add', set: prepared.set }, prepared.original);
+  store: StandaloneVault, input: unknown, unit: WeightUnit, reportAutomaticCsv: ReportAutomaticCsvError, system?: MeasurementSystem,
+): Promise<WorkoutSaveResult> {
+  const now = new Date();
+  const request = readLogSetInput(input, localDate(now));
+  return withVaultEdit(store, reportAutomaticCsv, async (vault) => {
+    const prepared = prepareLogSet(vault.data, request, unit, system, now);
+    if ('replay' in prepared) return workoutSaveResult(vault.data, prepared.replay);
+    const saved = await writeWorkoutChange(vault, request.date, { kind: 'add', set: prepared.set }, prepared.original);
+    return workoutSaveResult(vault.data, saved, prepared.set.id);
   }, true);
 }
 
-export function editStandaloneWorkout(store: StandaloneVault, input: unknown, today: string, reportAutomaticCsv: ReportAutomaticCsvError, system?: MeasurementSystem): Promise<WorkoutFile> {
-  return withVaultEdit(store, reportAutomaticCsv, (vault) => {
+export function editStandaloneWorkout(store: StandaloneVault, input: unknown, today: string, reportAutomaticCsv: ReportAutomaticCsvError, system?: MeasurementSystem): Promise<WorkoutSaveResult> {
+  return withVaultEdit(store, reportAutomaticCsv, async (vault) => {
     const prepared = prepareWorkoutEdit(vault.data, input, today, system);
-    if ('replay' in prepared) return Promise.resolve(prepared.replay);
-    return writeWorkoutChange(vault, prepared.date, prepared.change, prepared.original, prepared.newWorkoutId);
+    if ('replay' in prepared) return workoutSaveResult(vault.data, prepared.replay);
+    const saved = await writeWorkoutChange(vault, prepared.date, prepared.change, prepared.original, prepared.newWorkoutId);
+    return workoutSaveResult(vault.data, saved);
   }, true);
 }
 

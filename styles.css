@@ -4,6 +4,18 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern-view > .view-content.rep-journal-modern-content { padding: 0; }
 .rep-journal-modern.rep-journal-standalone { min-height: 100dvh; }
 
+.is-phone.is-floating-nav .rep-journal-modern-view .rep-journal-modern {
+  --journal-bottom-inset: max(env(safe-area-inset-bottom), calc(
+    var(--view-bottom-spacing, 0px) + max(0px, calc(var(--navbar-bottom-offset, 0px) - 2px))
+  ));
+}
+.is-phone.is-floating-nav .rep-journal-modern-view .rep-journal-modern .rj-workspace {
+  padding-block-end: calc(var(--content-padding) + var(--journal-bottom-inset));
+}
+.is-phone.is-floating-nav .rep-journal-modern-view .rep-journal-modern .log-screen > .plan-banner {
+  bottom: calc(.65rem + var(--journal-bottom-inset));
+}
+
 .rep-journal-modern {
   --paper: var(--background-primary, light-dark(#f2f4eb, #171d19));
   --surface: var(--background-secondary, light-dark(#fbfcf6, #222b24));
@@ -60,6 +72,38 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .warning { color: var(--error); overflow-wrap: anywhere; }
 
 .rep-journal-modern .masthead { position: sticky; inset-block-start: 0; z-index: 2; border-bottom: 1px solid var(--border); background: var(--surface); }
+.rep-journal-modern .record-toast {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline: .75rem;
+  margin: .5rem auto;
+  width: fit-content;
+  max-width: calc(100% - 1.5rem);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l, .75rem);
+  padding: .65rem .85rem;
+  background: var(--plan);
+  box-shadow: var(--shadow);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.rep-journal-modern .record-toast:empty { clip-path: inset(50%); }
+.rep-journal-modern .record-badge {
+  --gold: var(--color-yellow, #dca329);
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: .28em;
+  padding: .17em .52em;
+  border: 1px solid color-mix(in srgb, var(--gold) 42%, var(--surface));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--gold) 12%, var(--surface));
+  color: color-mix(in srgb, var(--text) 66%, var(--gold));
+  font-size: .78em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.rep-journal-modern .record-badge svg { width: 1.15em; height: 1.15em; }
 .rep-journal-modern .masthead-content, .rep-journal-modern .rj-workspace {
   --content-padding: clamp(.75rem, 3cqi, 1rem);
   padding-left: max(var(--content-padding), env(safe-area-inset-left));
@@ -84,6 +128,9 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .masthead nav { flex: none; gap: .3rem; }
 .rep-journal-modern .masthead nav:not([hidden]) { display: flex; }
 .rep-journal-modern .masthead .nav-icon { display: grid; place-items: center; width: 2.75rem; padding: 0; }
+.rep-journal-modern .masthead .sync-warning { color: var(--text-warning, var(--error)); }
+.rep-journal-modern .masthead .sync-warning[hidden] { display: none; }
+.rep-journal-modern .calendar-workouts { display: grid; gap: .9rem; }
 .rep-journal-modern .nav-icon svg { width: var(--icon-size-m, 1.125rem); height: var(--icon-size-m, 1.125rem); }
 .rep-journal-modern .masthead nav button[aria-current='page'],
 .rep-journal-modern .nav-icon:is([aria-expanded='true'], [data-current]) { border-color: var(--accent); }
@@ -170,18 +217,19 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .weekday { font-size: .78rem; }
 .rep-journal-modern .calendar-day { min-height: 2.75rem; font-variant-numeric: tabular-nums; }
 .rep-journal-modern .calendar-day { display: grid; place-content: center; justify-items: center; gap: .12rem; padding: .12rem 0; }
-.rep-journal-modern .calendar-day:not([data-has-workout], [aria-current]) { background: transparent; border-color: transparent; color: var(--muted); }
+.rep-journal-modern .calendar-day:not([data-has-workout], [aria-current], [aria-pressed='true']) { background: transparent; border-color: transparent; color: var(--muted); }
 .rep-journal-modern .calendar-day:enabled:hover { border-color: var(--accent); }
 .rep-journal-modern .calendar-date-picker { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .6rem; }
 .rep-journal-modern .calendar-date-picker label { display: grid; gap: .35rem; }
 .rep-journal-modern .calendar-day[aria-current='date'] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.rep-journal-modern .calendar-day[aria-pressed='true'] { border-color: var(--accent); }
+.rep-journal-modern .calendar-day[aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--accent); }
+.rep-journal-modern .calendar-day[aria-current='date'][aria-pressed='true'] { box-shadow: inset 0 0 0 2px var(--on-accent); }
 .rep-journal-modern .markers { display: flex; align-items: center; gap: .18rem; }
 .rep-journal-modern .markers i { width: .31rem; height: .31rem; border-radius: 50%; background: var(--accent); }
 .rep-journal-modern .calendar-day[aria-current='date'] .markers i { background: currentColor; }
 .rep-journal-modern .legend { display: flex; align-items: center; gap: .45rem; }
 .rep-journal-modern .calendar-sessions, .rep-journal-modern .plan-list { display: grid; gap: .45rem; }
-.rep-journal-modern .calendar-sessions button { text-align: left; }
+.rep-journal-modern .calendar-sessions button { height: auto; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 .rep-journal-modern .plan-list { grid-template-columns: minmax(0, 1fr); }
 .rep-journal-modern button.plan-option {
   display: grid;
@@ -229,7 +277,12 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .plan-exercise-heading .primary { flex: none; }
 .rep-journal-modern .entry-form, .rep-journal-modern .entry-form label:not([hidden]) { display: grid; gap: .5rem; }
 .rep-journal-modern .entry-form { gap: .85rem; }
+.rep-journal-modern .entry-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .5rem 1rem; }
+.rep-journal-modern .entry-header h1 { min-width: 0; overflow-wrap: anywhere; }
+.rep-journal-modern .entry-header .plan-controls { align-items: center; }
 .rep-journal-modern .entry-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .7rem; }
+.rep-journal-modern .entry-weight-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .4rem; align-items: end; }
+.rep-journal-modern .weight-increment { padding-inline: .55rem; }
 .rep-journal-modern .entry-form input, .rep-journal-modern .entry-form select, .rep-journal-modern .entry-form textarea { width: 100%; min-width: 0; }
 .rep-journal-modern .entry-form textarea { resize: vertical; }
 .rep-journal-modern .entry-form .check-field { display: flex; gap: .5rem; align-items: center; }
@@ -253,13 +306,14 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 .rep-journal-modern .strength-chart-plot .line-marker.is-selected { stroke: var(--accent); stroke-width: 2; }
 .rep-journal-modern .strength-chart-controls:not([hidden]) { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
 .rep-journal-modern .strength-chart-detail { color: var(--muted); font-variant-numeric: tabular-nums; }
+.rep-journal-modern .strength-chart-detail strong { color: var(--text); }
 .rep-journal-modern .progress-history, .rep-journal-modern .context-preview { display: grid; gap: .6rem; min-width: 0; }
 .rep-journal-modern .progress-session { font-variant-numeric: tabular-nums; }
 .rep-journal-modern .progress-session summary, .rep-journal-modern .exercise-filters summary { cursor: pointer; font-weight: 600; }
 .rep-journal-modern .progress-session summary .secondary { display: block; margin-left: 1rem; font-weight: 400; }
 .rep-journal-modern .exercise-filters fieldset { margin: .5rem 0 0; min-width: 0; }
 .rep-journal-modern .exercise-filters .check-field { display: inline-flex; align-items: center; gap: .4rem; }
-.rep-journal-modern .last-session ol { margin: 0; padding-inline-start: 1.25rem; }
+.rep-journal-modern .session-reference ol { margin: 0; padding-inline-start: 1.25rem; }
 .rep-journal-modern .last-session button { justify-self: start; }
 .rep-journal-modern .context-preview textarea { font-family: var(--font-monospace, ui-monospace, monospace); font-size: .86rem; }
 .rep-journal-modern [hidden] { display: none; }
@@ -267,4 +321,5 @@ body.rep-journal-standalone-page { color-scheme: light dark; margin: 0; }
 @container (max-width: 360px) {
   .rep-journal-modern .masthead nav { gap: .2rem; }
   .rep-journal-modern button.wordmark { font-size: 1.1rem; }
+  .rep-journal-modern .entry-weight-field { grid-column: 1 / -1; }
 }

@@ -5,6 +5,11 @@ import { isMeasurementSystem, type MeasurementSystem } from './units.ts';
 export const journalFolder = 'Rep Journal';
 export const journalSettingsFile = '.rep-journal.json';
 
+export function isWorkoutFilePath(path: string, root: string): boolean {
+  const folder = `${root}/Workouts/`;
+  return path.startsWith(folder) && /^(?:\d{4}\/)?[^/]+\.json$/.test(path.slice(folder.length));
+}
+
 const windowsDevice = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
 
 export function normalizeJournalFolder(value: string): string {

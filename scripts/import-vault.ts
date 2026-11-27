@@ -153,6 +153,10 @@ async function listRecords(root: string, section: string, kind: 'exercises' | 'w
   return paths.sort();
 }
 
+export function listWorkoutFiles(root: string, folder: string): Promise<string[]> {
+  return listRecords(root, `${folder}/Workouts`, 'workouts');
+}
+
 async function readRecords<T extends { path: string }>(
   paths: string[],
   read: (path: string) => Promise<T | null>,
@@ -233,7 +237,7 @@ export async function readImportVault(root: string, configuredFolder?: string, r
   const workoutPaths: string[] = [];
   const workoutsFolder = `${folder}/Workouts`;
   try {
-    workoutPaths.push(...await listRecords(root, workoutsFolder, 'workouts'));
+    workoutPaths.push(...await listWorkoutFiles(root, folder));
   } catch (error: unknown) {
     issues.push({ code: 'VAULT_DIRECTORY_UNREADABLE', path: workoutsFolder, message: errorMessage(error) });
   }
@@ -285,7 +289,7 @@ async function readRecordText(root: string, path: string, revisions?: RecordRevi
 export async function unchangedImportVaultRecords(root: string, folder: string, revisions: RecordRevisions, committedPath: string): Promise<boolean> {
   const [exercises, workouts] = await Promise.all([
     listRecords(root, `${folder}/Exercises`, 'exercises'),
-    listRecords(root, `${folder}/Workouts`, 'workouts'),
+    listWorkoutFiles(root, folder),
   ]);
   return unchangedRecords([...exercises, ...workouts], revisions, committedPath, (path) => recordRevision(root, path));
 }

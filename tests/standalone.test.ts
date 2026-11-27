@@ -163,6 +163,22 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.deepEqual(parseWorkout(await readFile(oldPath, 'utf8')), history);
   assert.equal(await readFile(join(root, planPath), 'utf8'), planText);
 
+  const personalRecord = { ...payload, workoutId: saved.workout.id, setId: makeId(), values: { weight: 45, reps: 9 } };
+  const recordResponse = await post(personalRecord);
+  assert.equal(recordResponse.status, 200);
+  const earned = await recordResponse.json() as { personalRecord?: true; personalRecordSetIds: Record<string, string[]> };
+  assert.equal(earned.personalRecord, true);
+  assert.deepEqual(earned.personalRecordSetIds, { [saved.workout.id]: [personalRecord.setId] });
+  const replayResponse = await post(personalRecord);
+  assert.equal(replayResponse.status, 200);
+  const replayed = await replayResponse.json() as typeof earned;
+  assert.equal(replayed.personalRecord, undefined);
+  assert.deepEqual(replayed.personalRecordSetIds, earned.personalRecordSetIds);
+  const report = await (await fetch(`${origin}/api/progress?exercise=${exerciseId}`)).json() as {
+    sessions: Array<{ id: string; personalRecordIndices?: number[] }>;
+  };
+  assert.deepEqual(report.sessions.find(({ id }) => id === saved.workout.id)?.personalRecordIndices, [1]);
+
   const edit = (path: string, body: unknown, source = origin) => fetch(`${origin}/api/${path}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', Origin: source }, body: JSON.stringify(body),
   });
@@ -229,7 +245,43 @@ void test('standalone loads existing files and writes only the selected or new w
   assert.equal(dated.status, 200);
   const datedPath = (await dated.json() as { path: string }).path;
   assert.equal(datedPath, `${journalFolder}/Workouts/2024/${history.date}-2.json`);
-  assert.equal(parseWorkout(await readFile(join(root, datedPath), 'utf8')).sets[0].durationSeconds, 75);
+  const backdatedSet = parseWorkout(await readFile(join(root, datedPath), 'utf8')).sets[0];
+  assert.equal(backdatedSet.durationSeconds, 75);
+  assert.equal(backdatedSet.loggedAt, undefined);
+  const latest = parseWorkout(await readFile(notePath, 'utf8'));
+  const timingPayload = { ...payload, exerciseId: starter.id, values: { time: '1:30' }, automaticSession: true };
+  const latestSet = await post({ ...timingPayload, setId: makeId() });
+  assert.equal(latestSet.status, 200, latestSet.ok ? undefined : await latestSet.text());
+  const active = await latestSet.json() as { workout: ReturnType<typeof parseWorkout> };
+  assert.equal(active.workout.id, latest.id);
+  assert.ok(active.workout.sets[0].loggedAt);
+  const idle = {
+    ...active.workout, createdAt: new Date(Date.now() + 60_000).toISOString(),
+    sets: [{ ...active.workout.sets[0], loggedAt: new Date(Date.now() - 61 * 60_000).toISOString() }],
+  };
+  const earlierLoggedAt = new Date(Date.now() - 2 * 60 * 60_000).toISOString();
+  for (const { path } of [saved, second]) {
+    const absolutePath = join(root, path);
+    const workout = parseWorkout(await readFile(absolutePath, 'utf8'));
+    await writeFile(absolutePath, JSON.stringify({ ...workout, sets: workout.sets.map((set) => ({ ...set, loggedAt: earlierLoggedAt })) }));
+  }
+  await writeFile(notePath, JSON.stringify(idle));
+  const automatic = { ...timingPayload, workoutId: idle.id, setId: makeId() };
+  const rolled = await post(automatic);
+  assert.equal(rolled.status, 200);
+  const newSession = await rolled.json() as { workout: ReturnType<typeof parseWorkout> };
+  assert.notEqual(newSession.workout.id, latest.id);
+  assert.equal(newSession.workout.sets.length, 1);
+  const retried = await post(automatic);
+  assert.equal(retried.status, 200);
+  assert.deepEqual((await retried.json() as typeof newSession).workout, newSession.workout);
+  const next = await post({ ...automatic, setId: makeId() });
+  assert.equal(next.status, 200);
+  assert.equal((await next.json() as typeof newSession).workout.id, newSession.workout.id);
+  const manual = await post({ ...automatic, automaticSession: false, setId: makeId() });
+  assert.equal(manual.status, 200);
+  assert.equal((await manual.json() as typeof newSession).workout.id, idle.id);
+  assert.equal(await readFile(join(root, journalFolder, 'Exports', 'rep-journal.csv'), 'utf8'), toCsv((await readImportVault(root, journalFolder)).data));
   assert.ok(!(await readdir(root)).includes('Different folder'));
   const restarted = await startStandalone(root, 0, 'kg');
   context.after(() => new Promise<void>((complete, reject) => restarted.server.close((error) => { if (error) reject(error); else complete(); })));
@@ -386,4 +438,21 @@ void test('standalone progress and export use the active journal and preserve th
   await rmdir(csvPath);
   assert.equal((await post('exports', { format: 'automatic-csv' })).status, 200);
   assert.equal(await readFile(csvPath, 'utf8'), toCsv((await readImportVault(root)).data));
+
+  const revised = await post('workout-edits', {
+    date, workoutId: later.id, change: { kind: 'edit', original: later.sets[0], values: { weight: 50, reps: 8 } },
+  });
+  assert.equal(revised.status, 200);
+  const historicalRecords = async () => {
+    const progress = await (await fetch(`${origin}/api/progress?exercise=${exerciseId}`)).json() as {
+      sessions: Array<{ id: string; personalRecordIndices?: number[] }>;
+    };
+    return progress.sessions.find(({ id }) => id === later.id)?.personalRecordIndices;
+  };
+  assert.deepEqual(await historicalRecords(), [0]);
+  const corrected = await post('workout-edits', {
+    date, workoutId: early.id, change: { kind: 'edit', original: early.sets[0], values: { weight: 180, reps: 8 } },
+  });
+  assert.equal(corrected.status, 200);
+  assert.equal(await historicalRecords(), undefined);
 });

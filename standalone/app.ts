@@ -2,11 +2,13 @@ import { mount, unmount } from 'svelte';
 import PlanView from './PlanView.svelte';
 import type { RenderPlanMarkdown } from './plan-view.ts';
 import type { LineChartOptions } from 'svgplot-wasm';
-import { describeDistance, describeElevationGain, describeWeight, distanceUnits, elevationUnits, setMeasurements,
+import { exactRepRecordIds } from '../src/analytics.ts';
+import { compareWorkouts, describeDistance, describeElevationGain, describeWeight, distanceUnits, elevationUnits, setMeasurements,
   type ExerciseChoice, type ExerciseNote, type ExerciseTag, type LedgerData, type LoadMode, type Measurement, type TagGroup,
-  type WeightUnit, type Workout, type WorkoutFile, type WorkoutSet } from '../src/model.ts';
+  type WeightUnit, type Workout, type WorkoutSet } from '../src/model.ts';
 import type { ContextOptions, ExportFormat } from '../src/exports.ts';
-import type { exerciseProgress, ExerciseEditInput, LogSetInput, PlanNote, WorkoutEditInput } from '../src/journal-workflow.ts';
+import type { exerciseProgress, ExerciseEditInput, LogSetInput, PlanNote, WorkoutEditInput, WorkoutSaveResult } from '../src/journal-workflow.ts';
+import { automaticWorkout, latestWorkout } from '../src/journal-workflow.ts';
 import type { DatedPlanNote } from '../src/repo/plan-repository.ts';
 import type { parseWorkoutPlan } from '../src/workout-plan.ts';
 import { WorkoutNoteDrafts } from './drafts.js';
@@ -17,6 +19,8 @@ import { mountStrengthChart } from './strength-chart.js';
 import { convertDistance, convertWeight, displayUnits, entryUnits, isMeasurementSystem, journalWeightUnit, type MeasurementSystem, type MeasurementUnits } from '../src/units.ts';
 
 export interface JournalAdapter {
+  mountSyncIndicator?(nav: HTMLElement): () => void;
+  watchWorkoutFiles?(onArrival: (paths: string[]) => Promise<void>): () => void;
   renderPlanMarkdown?: RenderPlanMarkdown;
   loadJournal(): Promise<LedgerData & { starters: ExerciseChoice[]; today: string; unit: WeightUnit; measurementSystem: MeasurementSystem; vaultKey: string; datedPlans: DatedPlanNote[] }>;
   saveMeasurementSystem?(system: MeasurementSystem): Promise<void>;
@@ -24,8 +28,8 @@ export interface JournalAdapter {
   listPlans(): Promise<PlanNote[]>;
   readPlan(path: string): Promise<ReturnType<typeof parseWorkoutPlan>>;
   makeSetId(): string;
-  saveSet(input: LogSetInput, unit: WeightUnit): Promise<WorkoutFile>;
-  editWorkout(input: WorkoutEditInput): Promise<WorkoutFile>;
+  saveSet(input: LogSetInput, unit: WeightUnit): Promise<WorkoutSaveResult>;
+  editWorkout(input: WorkoutEditInput): Promise<WorkoutSaveResult>;
   saveExercise(input: ExerciseEditInput, unit: WeightUnit): Promise<ExerciseNote>;
   addStarter(id: string): Promise<ExerciseNote>;
   readProgress(exerciseId: string | null): Promise<ReturnType<typeof exerciseProgress>>;
@@ -45,6 +49,7 @@ export interface MountedJournal {
   openPlan(file: PlanNote, start?: boolean): Promise<void>;
   reload(force?: boolean): Promise<void>;
   refreshVaultNotes(): Promise<void>;
+  refreshWorkoutFiles(paths: string[]): Promise<void>;
   setMeasurementSystem(system: MeasurementSystem): void;
   dispose(): void;
 }
@@ -69,6 +74,7 @@ interface Entry {
   planUse?: PlanUse;
   date: string;
   selectedDate: boolean;
+  automaticSession: boolean;
   workoutId: string | null;
   picker: Picker;
 }
@@ -77,7 +83,7 @@ interface JournalState {
   journal: JournalData | null;
   date: string | null;
   selected: string | null;
-  newSession: boolean;
+  sessionMode: 'automatic' | 'manual' | 'new';
   screen: Screen;
   review: ReviewedPlan | null;
   saving: boolean;
@@ -86,7 +92,7 @@ interface JournalState {
   plans?: PlanNote[];
   planError?: string;
   entry?: Entry;
-  setEditor?: { session: Workout; set: WorkoutSet; name: string };
+  setEditor?: { session: Workout; set: WorkoutSet; name: string; setNumber: number; sessionName: string };
   exerciseEditor?: { exercise: ExerciseNote | null; id: string; unit: WeightUnit; from: EditorOrigin; initialName: string };
   exerciseSearch?: string;
 }
@@ -119,20 +125,24 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   const standalone = root.classList.contains('rep-journal-standalone');
   let mounted = true;
   let refreshVersion = 0;
+  let showTodayPending = false;
   let vaultNotesRefreshPending = false;
   let vaultNotesRefreshRunning = false;
   let updateExerciseList: (() => void) | undefined;
+  let updateCalendarWorkouts: (() => void) | undefined;
   let progressVersion = 0;
   let planPickerVersion = 0;
   let disposeStrengthChart: (() => void) | undefined;
   let disposePlanView: (() => void) | undefined;
   let disposeEntryNotes: (() => void) | undefined;
   let disposeExportScreen: (() => void) | undefined;
+  let toastTimer: number | undefined;
+  let personalRecordSetIds: Record<string, string[]> = {};
   let restoredPlanUses: Promise<PlanUses> | undefined;
   let planUses: PlanUses;
   root.classList.add('rep-journal-modern');
   const state: JournalState = {
-    journal: null, date: null, selected: null, newSession: false, screen: 'log', review: null, saving: false,
+    journal: null, date: null, selected: null, sessionMode: 'automatic', screen: 'log', review: null, saving: false,
     calendarMonth: new Date(), calendarDay: null,
   };
   const journalData = () => required(state.journal);
@@ -156,6 +166,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   const fullDate = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' });
   const shortDate = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' });
   const monthTitle = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const setTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
   const asDate = (value: string) => new Date(`${value}T00:00:00Z`);
   const normalized = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
   const tagKey = ({ group, name }: ExerciseTag) => `${group}/${normalized(name)}`;
@@ -199,12 +210,14 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }));
   const overflow = el('div', { id: overflowId, class: 'nav-overflow', popover: 'auto' }, ...menuItems.map(({ control }) => control));
   const navigation = el('nav', { 'aria-label': 'Rep Journal', hidden: '' }, calendar, exercises, overflowToggle, overflow);
+  const disposeSyncIndicator = adapter.mountSyncIndicator?.(navigation);
   const home = button('Rep Journal', () => { if (state.journal) navigate(goToday); },
     { className: 'wordmark', label: 'Rep Journal, Today', title: 'Today' });
   const header = el('div', { class: 'masthead-content' }, home, navigation);
+  const toast = el('div', { class: 'record-toast', role: 'status' });
   const app = el('main', { class: 'rj-workspace', id: standalone ? 'app' : undefined, 'aria-busy': 'true' },
     el('p', { role: 'status' }, 'Loading workouts…'));
-  root.replaceChildren(el('header', { class: 'masthead' }, header), app);
+  root.replaceChildren(el('header', { class: 'masthead' }, header, toast), app);
 
   function navigate(action: Action) {
     overflow.hidePopover?.();
@@ -266,9 +279,11 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
 
   function selectedWorkout() {
     const sessions = workouts();
-    if (state.newSession) return;
+    if (state.sessionMode === 'new') return;
     const day = workoutDate();
-    return sessions.find(({ id, date }) => id === state.selected && date === day) ?? findLast(sessions, ({ date }) => date === day);
+    if (state.selected) return sessions.find(({ id, date }) => id === state.selected && date === day);
+    if (day === journalData().today) return latestWorkout(sessions, day);
+    return findLast(sessions, ({ date }) => date === day);
   }
 
   function view(screen: Screen) {
@@ -286,7 +301,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const changed = date !== workoutDate();
     state.date = date === journalData().today ? null : date;
     state.selected = null;
-    state.newSession = false;
+    state.sessionMode = 'automatic';
     view('log');
     if (changed) refreshPlansForDate(date);
   }
@@ -296,10 +311,30 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       const changed = workout.date !== workoutDate();
       state.date = workout.date === journalData().today ? null : workout.date;
       state.selected = workout.id;
-      state.newSession = false;
+      state.sessionMode = 'manual';
       view('log');
       if (changed) refreshPlansForDate(workout.date);
     } else goToday();
+  }
+
+  function selectSavedWorkout(workout: Workout) {
+    const changed = workout.date !== workoutDate();
+    if (workout.date !== journalData().today || state.sessionMode === 'manual') {
+      state.date = workout.date === journalData().today ? null : workout.date;
+      state.sessionMode = 'manual';
+    } else {
+      state.sessionMode = 'automatic';
+      // Another host may have removed the session our cached journal considered latest.
+      if (latestWorkout(workouts(), workout.date, workout.id)?.id !== workout.id) vaultNotesRefreshPending = true;
+    }
+    state.selected = workout.id;
+    return changed;
+  }
+
+  function showSavedWorkout(workout: Workout) {
+    const changed = selectSavedWorkout(workout);
+    view('log');
+    if (changed) refreshPlansForDate(workout.date);
   }
 
   function disposeScreen() {
@@ -312,6 +347,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     disposePlanView?.();
     disposePlanView = undefined;
     updateExerciseList = undefined;
+    updateCalendarWorkouts = undefined;
   }
 
   function render() {
@@ -349,10 +385,13 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       const chart = page.querySelector<HTMLElement>('.strength-chart');
       if (chart && drawStrengthChart && progress.report) {
         const { trend, unit } = progress.report;
-        disposeStrengthChart = mountStrengthChart(chart, trend, unit, journalData().today, drawStrengthChart, createElement);
+        disposeStrengthChart = mountStrengthChart(chart, trend, unit, journalData().today, drawStrengthChart, createElement, progress.workout?.id);
       }
     }
-    if (state.screen === 'export') disposeExportScreen = exportScreen.mount(app, journalData().today);
+    if (state.screen === 'export') {
+      const back = button('Back to workout', () => view('log'), { className: 'text-button' });
+      disposeExportScreen = exportScreen.mount(app, journalData().today, back);
+    }
   }
 
   function renderSettings() {
@@ -385,6 +424,8 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const day = workoutDate();
     const isToday = day === today;
     const ordered = workouts();
+    const sessions = ordered.filter(({ date }) => date === day);
+    const records = session && personalRecordSetIds[session.id];
     const later = ordered.findIndex(({ date }) => date > day);
     const index = session ? ordered.findIndex(({ id }) => id === session.id) : later < 0 ? ordered.length : later;
     const previous = ordered[index - 1];
@@ -393,23 +434,27 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       button('←', () => goSession(previous), { className: 'arrow', label: 'Previous workout', disabled: !previous }),
       el('div', { class: 'session-title', 'aria-live': 'polite' },
         el('h1', {}, isToday ? 'Today' : shortDate.format(asDate(day))),
-        el('p', { class: 'secondary' }, !isToday && session ? sessionLabel(session) : fullDate.format(asDate(day)))),
+        el('p', { class: 'secondary' }, session && (!isToday || sessions.length > 1)
+          ? sessionLabel(session, sessions.indexOf(session), sessions.length) : fullDate.format(asDate(day)))),
       button('→', () => goSession(next), { className: 'arrow', label: 'Next workout', disabled: !next && day >= today }));
     const panel = el('section', { class: 'log-screen' }, header);
-    const sessions = ordered.filter(({ date }) => date === day);
     const actions = el('div', { class: 'log-actions' });
     if (sessions.length) {
       const select = el('select', { 'aria-label': isToday ? "Today's session" : 'Workout session' });
-      for (const workout of sessions) select.append(el('option', { value: workout.id }, sessionLabel(workout)));
+      if (isToday) select.append(el('option', { value: 'auto' }, 'Automatic'));
+      for (const [index, workout] of sessions.entries()) {
+        select.append(el('option', { value: workout.id }, sessionLabel(workout, index, sessions.length)));
+      }
       select.append(el('option', { value: '' }, 'New workout'));
-      select.value = session?.id ?? '';
+      const currentValue = isToday && state.sessionMode === 'automatic' ? 'auto' : session?.id ?? '';
+      select.value = currentValue;
       select.addEventListener('change', () => {
         if (state.saving) {
-          select.value = session?.id ?? '';
+          select.value = currentValue;
           return;
         }
-        state.selected = select.value || null;
-        state.newSession = !select.value;
+        state.selected = select.value && select.value !== 'auto' ? select.value : null;
+        state.sessionMode = select.value === 'auto' ? 'automatic' : select.value ? 'manual' : 'new';
         render();
       });
       actions.append(select);
@@ -449,10 +494,12 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
           className: 'exercise-card-action', label: logLabel, title: logUnavailable ?? logLabel, disabled: Boolean(logUnavailable),
         }));
       const rows = sets.map((set, index) => el('li', { class: 'set-row' },
-        el('span', { class: 'set-measurements' }, ...setValues(set, exercise).map((value) => el('span', {}, value))),
+        el('span', { class: 'set-measurements' }, ...setValues(set, exercise).map((value) => el('span', {}, value)),
+          records?.includes(set.id) ? recordBadge(set.reps) : undefined),
         button('Edit set', () => {
           if (!session) return;
-          state.setEditor = { session, set, name };
+          state.setEditor = { session, set, name, setNumber: index + 1,
+            sessionName: sessionLabel(session, sessions.indexOf(session), sessions.length) };
           view('edit-set');
         }, { className: 'text-button', label: `Edit set ${index + 1} for ${name}` })));
       log.append(el('section', { class: 'exercise-card' },
@@ -481,11 +528,27 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     return values;
   }
 
-  function recordWorkout(saved: WorkoutFile) {
-    const list = journalData().workouts.filter(({ workout }) => workout.id !== saved.workout.id);
-    list.push(saved);
-    list.sort((a, b) => a.workout.date.localeCompare(b.workout.date) || a.workout.createdAt.localeCompare(b.workout.createdAt) || a.workout.id.localeCompare(b.workout.id));
+  function recordBadge(reps: number | undefined) {
+    if (reps === undefined) return;
+    const label = `${reps}-rep PR`;
+    return el('span', { class: 'record-badge', role: 'img', 'aria-label': label, title: label },
+      lucideIcon(document, 'trophy'), label);
+  }
+
+  function celebrateRecord(set: WorkoutSet) {
+    const exercise = journalData().exercises.find(({ id }) => id === set.exerciseId);
+    const [weight] = setValues(set, exercise);
+    toast.textContent = `New ${set.reps}-rep PR! · ${exercise?.name ?? set.exerciseName} · ${weight}`;
+    hostWindow.clearTimeout(toastTimer);
+    toastTimer = hostWindow.setTimeout(() => { toast.textContent = ''; }, 5000);
+  }
+
+  function recordWorkout({ path, workout, personalRecordSetIds: records }: WorkoutSaveResult) {
+    const list = journalData().workouts.filter((item) => item.workout.id !== workout.id);
+    list.push({ path, workout });
+    list.sort((a, b) => compareWorkouts(a.workout, b.workout));
     journalData().workouts = list;
+    personalRecordSetIds = records ?? exactRepRecordIds(workouts());
   }
 
   async function saveChange<T>(
@@ -500,9 +563,15 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     for (const control of controls) control.disabled = true;
     submit.textContent = 'Saving…';
     error.hidden = true;
+    let committed = false;
     try {
       const result = await apply();
-      if (mounted) saved(result);
+      if (mounted) {
+        // An older background read must not replace this committed edit.
+        refreshVersion++;
+        saved(result);
+        committed = true;
+      }
     } catch (failure) {
       error.textContent = message(failure);
       error.hidden = false;
@@ -511,6 +580,10 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       state.saving = false;
       submit.replaceChildren(...label);
       for (const control of controls) control.disabled = false;
+      if (showTodayPending) {
+        showTodayPending = false;
+        if (committed && mounted && state.screen === 'entry') goToday();
+      }
       void flushVaultNotesRefresh();
     }
   }
@@ -555,7 +628,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       void saveChange(submit, error, () => adapter.editWorkout(input), (saved) => {
         noteDrafts.clear(date, workoutId);
         recordWorkout(saved);
-        goSession(saved.workout);
+        showSavedWorkout(saved.workout);
       });
     });
     details.append(form);
@@ -565,6 +638,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   function setFields(
     measurements: readonly Measurement[], values: SetInputs,
     units: Pick<ExerciseNote, 'distanceUnit' | 'elevationUnit'> & { weight?: { mode: LoadMode; unit: WeightUnit } },
+    addWeightIncrement = false,
   ) {
     const { weight, distanceUnit = 'm', elevationUnit = 'm' } = units;
     const fields = el('div', { class: 'entry-fields' });
@@ -581,7 +655,32 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       const label = measurement === 'distance' ? `Distance (${distanceUnit})`
         : measurement === 'elevationGain' ? `Elevation gain (${elevationUnit})`
         : measurement === 'weight' ? `${name} (${weight?.unit ?? journalData().unit})` : measurementNames[measurement];
-      fields.append(el('label', {}, label, input));
+      const field = el('label', {}, label, input);
+      if (measurement === 'weight' && weight && addWeightIncrement) {
+        const increment = weight.unit === 'kg' ? 22.5 : 45;
+        const actionLabel = `Add ${increment} ${weight.unit}`;
+        const addWeight = button(`+${increment}`, () => {
+          if (input.validity.badInput || input.validity.rangeUnderflow || input.validity.rangeOverflow) {
+            input.reportValidity();
+            return;
+          }
+          const current = input.value || '0';
+          if (Number(current) > Number(input.max) - increment) return;
+          const { min, step } = input;
+          // Use the draft as the step base so native decimal stepping adds the increment without snapping.
+          input.min = current;
+          input.step = String(increment);
+          try {
+            input.stepUp();
+          } finally {
+            input.min = min;
+            input.step = step;
+          }
+        }, { className: 'weight-increment', label: actionLabel, title: actionLabel });
+        fields.append(el('div', { class: 'entry-weight-field' }, field, addWeight));
+      } else {
+        fields.append(field);
+      }
     }
     return fields;
   }
@@ -599,7 +698,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   function renderSetEditor() {
-    const { session, set, name } = required(state.setEditor);
+    const { session, set, name, setNumber, sessionName } = required(state.setEditor);
     const weight = set.load?.mode && set.load.mode !== 'bodyweight' ? set.load : undefined;
     const exercise = journalData().exercises.find(({ id }) => id === set.exerciseId);
     const values = { weight: weight?.value, reps: set.reps, time: set.durationSeconds, distance: set.distance?.value,
@@ -636,11 +735,16 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     function submitChange(control: HTMLButtonElement, change: ExistingWorkoutChange) {
       return saveChange(control, error, () => adapter.editWorkout({ date: session.date, workoutId: session.id, change }), (saved) => {
         recordWorkout(saved);
-        goSession(saved.workout);
+        showSavedWorkout(saved.workout);
       });
     }
     return el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }),
-      el('h1', {}, 'Edit set'), el('p', { class: 'secondary' }, name), form);
+      el('h1', {}, 'Edit set'),
+      el('div', {},
+        el('p', {}, `${name} · Set ${setNumber}`),
+        el('p', { class: 'secondary' },
+          el('time', { datetime: session.date }, session.date), ` · ${sessionName}`)),
+      form);
   }
 
   function recordExercise(exercise: ExerciseNote) {
@@ -790,7 +894,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const workout = progress.workout;
     const back = workout ? button('Back to workout', () => {
       progress.workout = null;
-      goSession(workout);
+      view('log');
     }, { className: 'text-button' }) : undefined;
     const page = el('section', { class: 'page' }, back, el('h1', {}, 'Progress'));
     if (progress.error) {
@@ -814,14 +918,17 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       }
       const history = el('section', { class: 'progress-history', 'aria-label': 'Exercise history' }, el('h3', {}, 'Exercise history'));
       if (!sessions.length) history.append(el('p', { class: 'empty' }, 'No sets recorded for this exercise.'));
-      for (const [index, { date, number, sets, estimatedMax }] of sessions.entries()) {
+      const expandedId = sessions.find(({ id }) => id === workout?.id)?.id ?? sessions[0]?.id;
+      for (const { id, date, number, sets, estimatedMax, personalRecordReps } of sessions) {
         const estimate = estimatedMax === undefined ? undefined : el('span', { class: 'secondary' }, `Estimated 1RM · ${estimatedMax.toFixed(1)} ${unit}`);
         const dateLabel = el('time', { datetime: date }, date);
         const count = `${sets.length} ${sets.length === 1 ? 'set' : 'sets'}`;
         const summary = el('summary', {}, dateLabel, number ? ` · Session ${number}` : '', ` · ${count}`, estimate);
-        history.append(el('details', { class: 'exercise-card progress-session', open: index === 0 ? '' : undefined }, summary,
-          el('ol', {}, ...sets.map((set, index) => el('li', { class: 'set-row' }, el('span', { class: 'secondary' }, `${index + 1}`),
-            el('span', { class: 'set-measurements' }, set))))));
+        const rows = sets.map((set, index) => el('li', { class: 'set-row' },
+          el('span', { class: 'secondary' }, `${index + 1}`),
+          el('span', { class: 'set-measurements' }, set, recordBadge(personalRecordReps?.[index]))));
+        history.append(el('details', { class: 'exercise-card progress-session', open: id === expandedId ? '' : undefined },
+          summary, el('ol', {}, ...rows)));
       }
       page.append(history);
     } else {
@@ -903,10 +1010,14 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     return el('div', { class: 'page' }, search, tags.length ? filters : undefined, results, list);
   }
 
-  function sessionLabel(workout: Workout) {
-    const sessions = workouts().filter(({ date }) => date === workout.date);
-    const index = sessions.findIndex(({ id }) => id === workout.id);
-    return `Session ${index + 1}`;
+  function sessionLabel(workout: Workout, index: number, count: number) {
+    const label = `Session ${index + 1}`;
+    const first = workout.sets[0]?.loggedAt;
+    const last = workout.sets.at(-1)?.loggedAt;
+    if (count < 2 || !first || !last) return label;
+    const start = setTime.format(new Date(first));
+    const end = setTime.format(new Date(last));
+    return `${start === end ? start : start + '–' + end} · ${label}`;
   }
 
   function renderBanner(use: PlanUse) {
@@ -942,16 +1053,16 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       state.calendarDay = day;
       render();
       app.querySelector<HTMLButtonElement>('.calendar-sessions button')?.focus();
-    } else if (!sessions.length) goDate(day);
-    else goSession(sessions[0]);
+    } else goDate(day);
   }
 
-  function renderCalendar() {
+  function calendarWorkouts() {
     const date = state.calendarMonth;
     const month = date.toISOString().slice(0, 7);
     const endOfMonth = new Date(date);
     endOfMonth.setUTCMonth(date.getUTCMonth() + 1, 0);
     const days = endOfMonth.getUTCDate();
+    const selectedDate = state.calendarDay ?? workoutDate();
     const sessions = new Map<string, Workout[]>();
     for (const { workout } of journalData().workouts) {
       const day = sessions.get(workout.date);
@@ -967,7 +1078,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       const label = `${fullDate.format(asDate(day))}, ${entries.length} ${entries.length === 1 ? 'workout' : 'workouts'}`;
       const control = button(String(number), () => openCalendarDay(day, entries), { className: 'calendar-day', label });
       if (day === journalData().today) control.setAttribute('aria-current', 'date');
-      if (day === state.calendarDay) control.setAttribute('aria-pressed', 'true');
+      control.setAttribute('aria-pressed', String(day === selectedDate));
       if (entries.length) {
         control.setAttribute('data-has-workout', '');
         const markers = el('span', { class: 'markers', 'aria-hidden': 'true' });
@@ -978,8 +1089,20 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     }
     const choices = state.calendarDay ? el('section', { class: 'calendar-sessions', 'aria-live': 'polite' },
       el('h2', {}, shortDate.format(asDate(state.calendarDay))),
-      ...(sessions.get(state.calendarDay) ?? []).map((session, index) =>
-        button(`Session ${index + 1} · ${session.sets.length} ${session.sets.length === 1 ? 'set' : 'sets'}`, () => goSession(session)))) : undefined;
+      ...(sessions.get(state.calendarDay) ?? []).map((session, index, daySessions) => {
+        const label = sessionLabel(session, index, daySessions.length);
+        const count = `${session.sets.length} ${session.sets.length === 1 ? 'set' : 'sets'}`;
+        const names = [...new Set(session.sets.map(({ exerciseName }) => exerciseName))];
+        return button([label, count, ...names].join(' · '), () => goSession(session));
+      })) : undefined;
+    return [grid, el('p', { class: 'legend secondary' }, el('span', { class: 'markers', 'aria-hidden': 'true' }, el('i')), 'Workout logged'), ...(choices ? [choices] : [])];
+  }
+
+  function renderCalendar() {
+    const date = state.calendarMonth;
+    const month = date.toISOString().slice(0, 7);
+    const workoutList = el('div', { class: 'calendar-workouts' }, ...calendarWorkouts());
+    updateCalendarWorkouts = () => workoutList.replaceChildren(...calendarWorkouts());
     const picker = el('input', { type: 'date', min: '0001-01-01', max: '9999-12-31', required: '' });
     const day = workoutDate();
     picker.value = state.calendarDay ?? (day.startsWith(month + '-') ? day : month + '-01');
@@ -995,7 +1118,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
         button('←', () => moveMonth(-1), { className: 'arrow', label: 'Previous month', disabled: month === '0001-01' }),
         el('strong', { 'aria-live': 'polite' }, monthTitle.format(date)),
         button('→', () => moveMonth(1), { className: 'arrow', label: 'Next month', disabled: month === '9999-12' })),
-      grid, el('p', { class: 'legend secondary' }, el('span', { class: 'markers', 'aria-hidden': 'true' }, el('i')), 'Workout logged'), choices, jump);
+      workoutList, jump);
   }
 
   async function openPlans() {
@@ -1108,34 +1231,44 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   function openEntry(exerciseId?: string, planUse?: PlanUse) {
-    state.entry = { exerciseId, setId: adapter.makeSetId(), planUse, date: workoutDate(),
+    const date = workoutDate();
+    const automaticSession = date === journalData().today && state.sessionMode === 'automatic';
+    state.entry = { exerciseId, setId: adapter.makeSetId(), planUse, date, automaticSession,
       selectedDate: Boolean(state.date), workoutId: selectedWorkout()?.id ?? null, picker: { search: '', tags: new Set() } };
     view('entry');
-    if (exerciseId) {
-      const inputs = [...app.querySelectorAll<HTMLInputElement>('.entry-fields input:not(:disabled):not([readonly])')];
-      (inputs.find((input) => input.value === '') ?? inputs[0])?.focus();
+    focusEntryField();
+  }
+
+  function focusEntryField() {
+    const search = app.querySelector<HTMLInputElement>('.entry-form input[type="search"]');
+    if (search) {
+      search.focus();
+      search.select();
+      return;
     }
+    const inputs = [...app.querySelectorAll<HTMLInputElement>('.entry-fields input:not(:disabled):not([readonly])')];
+    (inputs.find((input) => input.required && input.value === '') ?? inputs[0])?.focus();
   }
 
   function selectEntryExercise(exerciseId?: string) {
     const entry = required(state.entry);
-    entry.exerciseId = exerciseId;
-    entry.setId = adapter.makeSetId();
+    state.entry = { ...entry, exerciseId, setId: adapter.makeSetId() };
     view('entry');
+    focusEntryField();
   }
 
   function renderEntry() {
     const entry = required(state.entry);
     const exercises = journalData().exercises.filter(({ archived }) => !archived);
     const exercise = exercises.find(({ id }) => id === entry.exerciseId);
-    const page = el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }),
-      el('h1', {}, exercise?.name ?? 'Log a set'));
-    if (entry.selectedDate) page.append(el('p', { class: 'secondary' }, fullDate.format(asDate(entry.date))));
-    const instructions = entry.planUse && exercise ? entryNotes(entry.planUse) : undefined;
-    if (instructions) page.append(instructions);
+    const heading = el('h1', {}, exercise?.name ?? 'Log a set');
+    const page = el('section', { class: 'page' }, button('← Workout log', () => view('log'), { className: 'text-button' }));
+    const dateLabel = entry.selectedDate ? el('p', { class: 'secondary' }, fullDate.format(asDate(entry.date))) : undefined;
     const form = el('form', { class: 'entry-form' });
     const error = el('p', { role: 'alert', class: 'warning', hidden: '' });
     if (!exercise) {
+      page.append(heading);
+      if (dateLabel) page.append(dateLabel);
       if (entry.planUse) {
         page.append(el('p', { class: 'warning' }, 'The planned exercise note is unavailable.'));
         return page;
@@ -1181,19 +1314,26 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     const actions = el('div', { class: 'plan-controls' });
     if (!entry.planUse) actions.append(button('Change exercise', () => selectEntryExercise(undefined)));
     if (adapter.openExerciseNote) actions.append(button('Open exercise note', () => adapter.openExerciseNote?.(exercise), { className: 'text-button' }));
-    page.append(actions);
+    if (dateLabel) page.append(dateLabel);
+    page.append(el('header', { class: 'entry-header' }, heading, actions.childElementCount ? actions : undefined));
     const past = workouts().filter(({ date }) => date <= entry.date);
-    const currentIndex = entry.workoutId ? past.findIndex(({ id }) => id === entry.workoutId) : -1;
+    const target = entry.automaticSession ? automaticWorkout(past, entry.date, new Date(), entry.workoutId)?.id : entry.workoutId;
+    const currentIndex = target ? past.findIndex(({ id }) => id === target) : -1;
     const earlier = currentIndex < 0 ? past : past.slice(0, currentIndex);
-    const latest = findLast((currentIndex < 0 ? past : past.slice(0, currentIndex + 1)).flatMap(({ sets }) => sets),
-      ({ exerciseId }) => exerciseId === exercise.id);
+    const currentSets = past[currentIndex]?.sets.filter(({ exerciseId }) => exerciseId === exercise.id) ?? [];
     const last = findLast(earlier, ({ sets }) => sets.some(({ exerciseId }) => exerciseId === exercise.id));
+    const latest = currentSets.at(-1) ?? findLast(last?.sets ?? [], ({ exerciseId }) => exerciseId === exercise.id);
     const units = entryUnits(journalData().unit, journalData().measurementSystem, exercise);
     const fields = setFields(exercise.measurements, { weight: latest?.load && latest.load.mode !== 'bodyweight' && latest.load.unit === units.weightUnit ? latest.load.value : undefined },
-      { ...units, weight: { mode: exercise.loadMode, unit: units.weightUnit } });
-    const submit = el('button', { type: 'submit', class: 'primary' }, 'Log set →');
+      { ...units, weight: { mode: exercise.loadMode, unit: units.weightUnit } }, true);
+    const submit = el('button', { type: 'submit', class: 'primary' }, 'Log set');
+    const status = el('p', { class: 'secondary', role: 'status', hidden: '' });
+    form.append(fields, submit, error, status);
+    const instructions = entry.planUse ? entryNotes(entry.planUse) : undefined;
+    if (instructions) form.append(instructions);
+    if (currentSets.length) form.append(el('section', { class: 'session-reference plan-section' },
+      el('h2', {}, 'Current session'), renderReferenceSets(currentSets, exercise)));
     if (last) form.append(renderLastSession(last, exercise, units, form));
-    form.append(fields, error, submit);
     form.addEventListener('submit', (event) => {
       event.preventDefault();
       if (state.saving) return;
@@ -1201,6 +1341,10 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     });
     page.append(form);
     return page;
+  }
+
+  function renderReferenceSets(sets: WorkoutSet[], exercise: ExerciseNote) {
+    return el('ol', {}, ...sets.map((set) => el('li', {}, setValues(set, exercise).join(' · '))));
   }
 
   function renderLastSession(session: Workout, exercise: ExerciseNote, units: Required<MeasurementUnits>, form: HTMLFormElement) {
@@ -1214,9 +1358,9 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       elevationGain: elevationGain && convertDistance(elevationGain.value, elevationGain.unit, units.elevationUnit),
     };
     const usable = exercise.measurements.filter((measurement) => values[measurement] !== undefined);
-    const last = el('section', { class: 'last-session plan-section' }, el('h2', {}, 'Last session'),
+    const last = el('section', { class: 'last-session session-reference plan-section' }, el('h2', {}, 'Last session'),
       el('time', { class: 'secondary', datetime: session.date }, session.date),
-      el('ol', {}, ...sets.map((set) => el('li', {}, setValues(set, exercise).join(' · ')))));
+      renderReferenceSets(sets, exercise));
     if (usable.length) last.append(button('Use last set', () => {
       for (const measurement of usable) inputFor(form, measurement).value = String(values[measurement]);
       inputFor(form, usable[0]).focus();
@@ -1225,14 +1369,32 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   function logSet(entry: Entry, units: Required<MeasurementUnits>, values: SetInputs, submit: HTMLButtonElement, error: HTMLElement) {
-    const { date, workoutId, selectedDate, exerciseId } = entry;
+    const { date, workoutId, selectedDate, automaticSession, exerciseId, setId, planUse } = entry;
     if (!exerciseId) return;
-    return saveChange(submit, error, () => adapter.saveSet({ date, selectedDate, workoutId, exerciseId, setId: entry.setId, values, units }, units.weightUnit), (saved) => {
+    const associateNotes = !selectedWorkout();
+    return saveChange(submit, error, () => adapter.saveSet({ date, selectedDate, workoutId, automaticSession, exerciseId, setId, values, units }, units.weightUnit), (saved) => {
       recordWorkout(saved);
-      if (workoutId === null) noteDrafts.associate(date, saved.workout.id);
-      const savedSet = saved.workout.sets.find(({ id }) => id === entry.setId);
-      if (entry.planUse && savedSet) planUses.log(entry.planUse, savedSet);
-      goSession(saved.workout);
+      if (associateNotes) noteDrafts.associate(date, saved.workout.id);
+      const savedSet = saved.workout.sets.find(({ id }) => id === setId);
+      if (planUse && savedSet) planUses.log(planUse, savedSet);
+      if (saved.personalRecord && savedSet) celebrateRecord(savedSet);
+      if (state.screen !== 'entry' || state.entry !== entry || !submit.isConnected) return;
+      selectSavedWorkout(saved.workout);
+      const nextPlanUse = planUse && activePlans(date).find(({ path }) => path === planUse.path);
+      state.entry = {
+        ...entry, workoutId: saved.workout.id, setId: adapter.makeSetId(),
+        automaticSession: date === journalData().today && state.sessionMode === 'automatic',
+        planUse: nextPlanUse, exerciseId: (nextPlanUse && plannedExercise(nextPlanUse)?.exerciseId) ?? exerciseId,
+      };
+      render();
+      focusEntryField();
+      const status = app.querySelector<HTMLElement>('.entry-form [role="status"]');
+      if (status && savedSet) {
+        const savedExercise = journalData().exercises.find(({ id }) => id === savedSet.exerciseId);
+        const name = state.entry.exerciseId === savedSet.exerciseId ? [] : [savedExercise?.name ?? savedSet.exerciseName];
+        status.hidden = false;
+        status.textContent = ['Set logged', ...name, ...setValues(savedSet, savedExercise)].join(' · ');
+      }
     });
   }
 
@@ -1280,15 +1442,31 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       }
       if (version !== refreshVersion || state.saving || (!force && editing())) return;
       const dateChanged = state.journal && journal.today !== journalData().today;
+      const previousWorkouts = state.journal?.workouts;
+      const calendarChanged = updateCalendarWorkouts && (dateChanged || previousWorkouts?.length !== journal.workouts.length ||
+        journal.workouts.some(({ workout }, index) => {
+          const old = previousWorkouts[index].workout;
+          return workout.id !== old.id || workout.date !== old.date || workout.sets.length !== old.sets.length ||
+            workout.sets[0]?.loggedAt !== old.sets[0]?.loggedAt || workout.sets.at(-1)?.loggedAt !== old.sets.at(-1)?.loggedAt ||
+            (workout.date === state.calendarDay && workout.sets.some(({ exerciseName }, setIndex) => exerciseName !== old.sets[setIndex].exerciseName));
+        }));
       state.journal = journal;
+      if (state.sessionMode === 'automatic' && !state.date) {
+        state.selected = latestWorkout(workouts(), journal.today, state.selected)?.id ?? null;
+      } else if (state.selected && !journal.workouts.some(({ workout }) => workout.id === state.selected && workout.date === workoutDate())) {
+        state.selected = null;
+        state.sessionMode = 'automatic';
+      }
+      personalRecordSetIds = exactRepRecordIds(workouts());
       if (dateChanged && !state.date) {
         state.selected = null;
-        state.newSession = false;
+        state.sessionMode = 'automatic';
         if (state.screen === 'entry') state.screen = 'log';
       }
       if (version === refreshVersion) {
         if (state.screen === 'progress') await openProgress();
         else if (background && updateExerciseList) updateExerciseList();
+        else if (background && calendarChanged) updateCalendarWorkouts?.();
         else if (!background || state.screen !== 'calendar') render();
       }
     } catch (error) {
@@ -1313,11 +1491,23 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
   }
 
   const ready = reload();
+  async function refreshWorkoutFiles(paths: string[]) {
+    await ready;
+    if (!mounted) return;
+    const loaded = new Set(state.journal?.workouts.map(({ path }) => path));
+    if (paths.some((path) => !loaded.has(path))) {
+      vaultNotesRefreshPending = true;
+      await flushVaultNotesRefresh();
+    }
+  }
+  const stopWatchingWorkouts = adapter.watchWorkoutFiles?.(refreshWorkoutFiles);
   return {
     ready,
     async showToday() {
       await ready;
-      if (mounted && state.journal) goToday();
+      if (!mounted || !state.journal) return;
+      if (state.saving && state.screen === 'entry' && app.querySelector('.entry-fields')) showTodayPending = true;
+      else goToday();
     },
     async openProgress(exerciseId) {
       await ready;
@@ -1332,6 +1522,7 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
       if (state.journal) await openPlan(file, start);
     },
     reload,
+    refreshWorkoutFiles,
     async refreshVaultNotes() {
       await ready;
       vaultNotesRefreshPending = true;
@@ -1340,6 +1531,9 @@ export function mountJournal(root: HTMLElement, adapter: JournalAdapter, createE
     setMeasurementSystem,
     dispose() {
       mounted = false;
+      stopWatchingWorkouts?.();
+      disposeSyncIndicator?.();
+      hostWindow.clearTimeout(toastTimer);
       disposeScreen();
       menuResize.disconnect();
       root.replaceChildren();

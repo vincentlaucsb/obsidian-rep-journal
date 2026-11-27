@@ -169,6 +169,24 @@ void test('the native workout log uses the vault repository without writing on s
   assert.match(preview, /"goal": "Build strength"/);
   assert.match(preview, /"latestEstimated1RM"/);
   await assert.rejects(adapter.prepareContext({ ...context, daysPerWeek: 8 }), /Days per week/);
+
+  const idle = { ...append.workout, sets: append.workout.sets.map((set) => ({
+    ...set, loggedAt: new Date(Date.now() - 61 * 60_000).toISOString(),
+  })) };
+  await vault.adapter.write(append.path, JSON.stringify(idle));
+  const manual = await adapter.saveSet({ ...input, workoutId: idle.id, setId: makeId() }, 'kg');
+  assert.equal(manual.workout.id, idle.id);
+  assert.ok(manual.workout.sets.at(-1)?.loggedAt);
+  await adapter.refreshAutomaticCsv();
+  const expired = { ...manual.workout, sets: manual.workout.sets.map((set) => ({ ...set, loggedAt: idle.sets[0].loggedAt })) };
+  await vault.adapter.write(append.path, JSON.stringify(expired));
+  const automatic = { ...input, automaticSession: true, workoutId: idle.id, setId: makeId() };
+  const rolled = await adapter.saveSet(automatic, 'kg');
+  assert.notEqual(rolled.workout.id, idle.id);
+  assert.equal(rolled.workout.sets.length, 1);
+  assert.deepEqual((await adapter.saveSet(automatic, 'kg')).workout, rolled.workout);
+  await adapter.refreshAutomaticCsv();
+  assert.equal(await vault.adapter.read('Rep Journal/Exports/rep-journal.csv'), toCsv(await repository.read()));
   assert.deepEqual(exportErrors, []);
 });
 
@@ -195,7 +213,7 @@ void test('the native workout log corrects historical workouts and manages exerc
   await assert.rejects(adapter.editWorkout({ ...target, change: { kind: 'remove', original: set } }), /changed/);
   await adapter.editWorkout({ ...target, change: { kind: 'remove', original: edited.workout.sets[0] } });
   const noted = await adapter.editWorkout({ ...target, change: { kind: 'notes', original: '', value: 'Historical note' } });
-  assert.deepEqual(noted, { ...saved, workout: { ...saved.workout, sets: [], notes: 'Historical note' } });
+  assert.deepEqual(noted, { ...saved, workout: { ...saved.workout, sets: [], notes: 'Historical note' }, personalRecordSetIds: {} });
   await assert.rejects(adapter.editWorkout({ ...target, change: { kind: 'notes', original: '', value: 'Stale note' } }), /changed/);
 
   const today = await adapter.loadJournal();

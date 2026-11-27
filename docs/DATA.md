@@ -36,6 +36,7 @@ New sessions go under `Workouts/YYYY` using the workout date, including for back
 
 | Set field | Value |
 | --- | --- |
+| `loggedAt` | Optional UTC timestamp of a set logged on the current workout date. An edit preserves it. Backdated entries and older sets can omit it. |
 | `reps` | Whole-number repetitions. |
 | `load` | Weight with `mode`, `value`, and original `unit` (`lb` or `kg`). Reps-only records can use `{ "mode": "bodyweight" }`. Assisted and added loads store the positive amount assisted or added. |
 | `durationSeconds` | Positive whole seconds. |
@@ -43,6 +44,8 @@ New sessions go under `Workouts/YYYY` using the workout date, including for back
 | `elevationGain` | Optional nonnegative `value` with its original `unit` (`m` or `ft`). Blank means absent. Zero records a measured gain of zero. |
 
 The `warmup` flag remains in saved files and exports for compatibility. New sets store `false`, and edits preserve the original value.
+
+Within a date, sessions are ordered by creation time or the earliest recorded set time, whichever came first. This keeps a workout imported later in its original place when its sets have timestamps. Automatic session selection uses the final set’s `loggedAt` in the latest workout for today. If that timestamp is missing, the next set continues the workout.
 
 Workout files that use only the original reps and load shape retain schema version `1`. Adding time, distance, elevation gain, or a set without both reps and load advances that file to schema version `2`. Version `2` can contain both old and new set shapes. Editing a recorded measurement uses its original unit and precision. Enable **Elevation gain** on an exercise to add it when logging a set or editing a set with no elevation recorded. Clear the field in the set editor to remove the measurement.
 

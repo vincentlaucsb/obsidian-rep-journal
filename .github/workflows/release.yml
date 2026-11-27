@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     timeout-minutes: 15
     permissions:
       contents: write
@@ -23,6 +23,8 @@ jobs:
     env:
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
+      # Keep release inputs byte-identical to a Linux checkout.
+      - run: git config --global core.autocrlf false
       - name: Check out the tagged commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,6 +37,7 @@ jobs:
           cache: npm
 
       - name: Verify release version
+        shell: bash
         run: |
           node <<'NODE'
           const { readFileSync } = require('node:fs');
@@ -62,8 +65,13 @@ jobs:
         run: npm test
       - name: Build
         run: npm run build
+      - name: Install Obsidian for the offline chart check
+        run: ./scripts/install-test-obsidian.ps1
+      - name: Test the release bundle offline
+        run: npm run test:offline-chart
 
       - name: Verify Obsidian assets
+        shell: bash
         run: |
           for asset in main.js manifest.json styles.css; do
             test -s "$asset" || { echo "Missing or empty asset: $asset"; exit 1; }
@@ -79,6 +87,7 @@ jobs:
             styles.css
 
       - name: Publish GitHub release
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

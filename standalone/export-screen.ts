@@ -27,12 +27,12 @@ export function createExportScreen({ el, button, saveExport, refreshAutomaticCsv
   let draft: ContextDraft | undefined;
   let active: { updateFile(): void; updateContext(): void; selectPreview(): void } | undefined;
 
-  function mount(host: HTMLElement, today: string): () => void {
+  function mount(host: HTMLElement, today: string, back: HTMLButtonElement): () => void {
     const file = renderFileExports();
     const workout = renderWorkoutContext(today);
     const view = { updateFile: file.update, updateContext: workout.update, selectPreview: workout.selectPreview };
     active = view;
-    host.append(el('section', { class: 'page' }, el('h1', {}, 'Export'), file.section, workout.form));
+    host.append(el('section', { class: 'page' }, back, el('h1', {}, 'Export'), file.section, workout.form));
     file.readStatus();
     return () => { if (active === view) active = undefined; };
   }

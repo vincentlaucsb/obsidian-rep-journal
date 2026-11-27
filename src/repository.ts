@@ -1,12 +1,12 @@
 import type { TFile } from 'obsidian';
 import { automaticCsvFilename, exportSnapshotFilename, toCsv, type ExportFormat } from './exports.ts';
-import { journalFolder, nextWorkoutSession, normalizeJournalFolder, workoutFilename } from './journal-paths.ts';
+import { isWorkoutFilePath, journalFolder, nextWorkoutSession, normalizeJournalFolder, workoutFilename } from './journal-paths.ts';
 import {
   changeWorkout, compareWorkouts, createWorkout, parseWorkout, type Exercise, type ExerciseDetails, type ExerciseNote,
   type LedgerData, type WorkoutChange, type WorkoutFile,
 } from './model.ts';
 import { ExerciseRepository } from './repo/exercise-repository.ts';
-import { ensureFolder, isRecordPath, readRecords, uniqueRecords, type LedgerVault } from './repo/vault-records.ts';
+import { ensureFolder, readRecords, uniqueRecords, type LedgerVault } from './repo/vault-records.ts';
 import { diskFileRevision, ledgerWithCommittedWorkout, unchangedRecords, type StatDiskFile, type RecordRevisions, type WorkoutSnapshot } from './repo/workout-snapshot.ts';
 
 const workoutCreations = new WeakMap<LedgerVault, Promise<WorkoutFile>>();
@@ -26,7 +26,7 @@ export class LedgerRepository {
     this.statFile = statFile;
   }
 
-  read(options: { fresh?: boolean } = {}): Promise<LedgerData> {
+  read(options: { fresh?: boolean; freshWorkouts?: boolean } = {}): Promise<LedgerData> {
     return this.readData(options);
   }
 
@@ -36,7 +36,9 @@ export class LedgerRepository {
     return { data, revisions };
   }
 
-  private async readData({ fresh = false, revisions }: { fresh?: boolean; revisions?: RecordRevisions }): Promise<LedgerData> {
+  private async readData({ fresh = false, freshWorkouts = false, revisions }: {
+    fresh?: boolean; freshWorkouts?: boolean; revisions?: RecordRevisions;
+  }): Promise<LedgerData> {
     const issues: string[] = [];
     const workoutPaths = await this.workoutPaths();
     const readText = async (path: string, file?: TFile | null): Promise<string> => {
@@ -46,7 +48,8 @@ export class LedgerRepository {
     const [exercises, workouts] = await Promise.all([
       this.exercises.read(issues, (file) => readText(file.path, file)),
       readRecords(workoutPaths, async (path) => {
-        const text = await readText(path, fresh ? undefined : this.vault.getFileByPath(path));
+        const file = fresh || freshWorkouts ? undefined : this.vault.getFileByPath(path);
+        const text = await readText(path, file);
         return { path, workout: parseWorkout(text) };
       }, issues),
     ]);
@@ -89,8 +92,7 @@ export class LedgerRepository {
       }
     }
 
-    const relativePath = original.path.slice(`${this.root}/Workouts/`.length);
-    if (!isRecordPath(original.path, this.root, 'Workouts') || !/^(?:\d{4}\/)?[^/]+\.json$/.test(relativePath)) {
+    if (!isWorkoutFilePath(original.path, this.root)) {
       throw new Error('The workout is outside the workout folder.');
     }
     const update = (text: string): string => {

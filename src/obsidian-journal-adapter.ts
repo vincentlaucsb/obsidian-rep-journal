@@ -5,7 +5,7 @@ import { progressExercises } from './analytics.ts';
 import { readContextOptions, serializeExport, workoutContext } from './exports.ts';
 import {
   exerciseProgress, isWorkoutPlanPath, maxPlanBytes, prepareExerciseEdit, prepareLogSet, prepareStarter, prepareWorkoutEdit,
-  readLogSetInput, workoutStarters,
+  readLogSetInput, workoutSaveResult, workoutStarters,
 } from './journal-workflow.ts';
 import { localDate, makeId, type WeightUnit } from './model.ts';
 import { DatedPlanRepository, isPlanYear, PlanPickerRepository } from './repo/plan-repository.ts';
@@ -58,7 +58,7 @@ export function createObsidianJournalAdapter(
 
   return {
     async loadJournal() {
-      const data = await repository.read();
+      const data = await repository.read({ freshWorkouts: true });
       const plansFolder = vault.getFolderByPath(`${repository.root}/Plans`);
       const paths = plansFolder?.children.flatMap(({ name, path }) =>
         isPlanYear(name) ? vault.getFolderByPath(path)?.children.map(({ path }) => path) ?? [] : []) ?? [];
@@ -95,23 +95,25 @@ export function createObsidianJournalAdapter(
     makeSetId: makeId,
     saveSet(input, unit) {
       return write(async () => {
-        const request = readLogSetInput(input, localDate());
+        const now = new Date();
+        const request = readLogSetInput(input, localDate(now));
         const snapshot = await repository.readWorkoutSnapshot();
-        const prepared = prepareLogSet(snapshot.data, request, unit, request.units ? undefined : options.measurementSystem ? await measurementSystem() : defaultMeasurementSystem(unit));
-        if ('replay' in prepared) return prepared.replay;
+        const system = request.units ? undefined : options.measurementSystem ? await measurementSystem() : defaultMeasurementSystem(unit);
+        const prepared = prepareLogSet(snapshot.data, request, unit, system, now);
+        if ('replay' in prepared) return workoutSaveResult(snapshot.data, prepared.replay);
         const saved = await repository.saveWorkout(request.date, { kind: 'add', set: prepared.set }, prepared.original);
         void updateAutomaticCsv({ snapshot, saved });
-        return saved;
+        return workoutSaveResult(snapshot.data, saved, prepared.set.id);
       });
     },
     editWorkout(input) {
       return write(async () => {
         const snapshot = await repository.readWorkoutSnapshot();
         const prepared = prepareWorkoutEdit(snapshot.data, input, localDate(), await measurementSystem());
-        if ('replay' in prepared) return prepared.replay;
+        if ('replay' in prepared) return workoutSaveResult(snapshot.data, prepared.replay);
         const saved = await repository.saveWorkout(prepared.date, prepared.change, prepared.original, prepared.newWorkoutId);
         void updateAutomaticCsv({ snapshot, saved });
-        return saved;
+        return workoutSaveResult(snapshot.data, saved);
       });
     },
     saveExercise(input, unit) {
@@ -134,7 +136,7 @@ export function createObsidianJournalAdapter(
     },
     async readProgress(exerciseId) {
       const system = await measurementSystem();
-      return exerciseProgress(await repository.read(), exerciseId, journalWeightUnit(system), system);
+      return exerciseProgress(await repository.read({ freshWorkouts: true }), exerciseId, journalWeightUnit(system), system);
     },
     saveExport(format) {
       return write(async () => repository.writeExport(format, serializeExport(await repository.read(), format)));

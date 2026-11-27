@@ -4,6 +4,7 @@ import { WorkoutNoteDrafts } from '../standalone/drafts.ts';
 import { exerciseHistory, estimatedMax, progressExercises, strengthTrend } from '../src/analytics.ts';
 import { matchesExerciseName, matchesTags, starterExercises } from '../src/catalog.ts';
 import { toCsv, toJson, workoutContext, type ContextOptions } from '../src/exports.ts';
+import { automaticWorkout, latestWorkout } from '../src/journal-workflow.ts';
 import {
   changeWorkout, createWorkout, describeSet, exerciseFrontmatter, isDate, makeId, parseDuration, parseWorkout,
   readExercise, SCHEMA_VERSION, setMeasurements, tagKey,
@@ -49,6 +50,40 @@ void test('workout records retain order and reject corrupt, duplicate, or unsupp
   assert.throws(() => parseWorkout(JSON.stringify({ ...entry, sets: [entry.sets[0], entry.sets[0]] })), /Invalid/);
   assert.throws(() => parseWorkout(JSON.stringify({ ...entry, sets: [set({ reps: 1.5 })] })), /Invalid/);
   assert.throws(() => parseWorkout(JSON.stringify({ ...entry, sets: [set({ load: { mode: 'assistance', value: 0, unit: 'lb' } })] })), /Invalid/);
+});
+
+void test('automatic sessions expire after an hour without a logged set', () => {
+  const date = '2026-10-01';
+  const loggedAt = `${date}T12:10:00.000Z`;
+  const earlier = { ...workout(date, [set()]), createdAt: `${date}T09:00:00.000Z` };
+  const latest = { ...workout(date, [set({ loggedAt })]), createdAt: `${date}T12:00:00.000Z` };
+  const edit = changeWorkout(latest, { kind: 'edit', original: latest.sets[0], set: { ...latest.sets[0], reps: 6, loggedAt: undefined } });
+  const noted = changeWorkout(edit, { kind: 'notes', original: '', value: 'Added a note' });
+  assert.equal(noted.sets[0].loggedAt, loggedAt);
+  assert.deepEqual(parseWorkout(JSON.stringify(noted)), noted);
+  assert.throws(() => parseWorkout(JSON.stringify({ ...noted, sets: [set({ loggedAt: date })] })), /Invalid/);
+  assert.equal(automaticWorkout([noted, earlier], date, new Date(`${date}T13:09:59.999Z`)), noted);
+  assert.equal(automaticWorkout([noted, earlier], date, new Date(`${date}T13:10:00.000Z`)), undefined);
+  assert.equal(automaticWorkout([earlier], date, new Date(`${date}T13:10:00.000Z`)), earlier);
+});
+
+void test('automatic session selection uses recorded start times and limits a preferred session to ties', () => {
+  const date = '2026-10-01';
+  const firstLoggedAt = `${date}T11:00:00.000Z`;
+  const imported = { ...workout(date, [set({ loggedAt: firstLoggedAt })]), createdAt: `${date}T14:00:00.000Z` };
+  const now = new Date(`${date}T13:00:00.000Z`);
+  assert.equal(automaticWorkout([imported], date, now), undefined);
+
+  const resumed = { ...workout(date, [set({ loggedAt: now.toISOString() })]), createdAt: now.toISOString() };
+  assert.equal(automaticWorkout([resumed, imported], date, now, imported.id), resumed);
+  assert.deepEqual(exerciseHistory([imported, resumed], exercise.id).map(({ workout }) => workout.id), [resumed.id, imported.id]);
+  const manuallyAppended = { ...imported, sets: [...imported.sets, set({ loggedAt: now.toISOString() })] };
+  assert.equal(latestWorkout([resumed, manuallyAppended], date, manuallyAppended.id), resumed);
+
+  const sameStart = { ...resumed, createdAt: firstLoggedAt };
+  assert.equal(latestWorkout([sameStart, imported], date), imported);
+  assert.equal(latestWorkout([sameStart, imported], date, sameStart.id), sameStart);
+  assert.equal(automaticWorkout([imported, sameStart], date, now, sameStart.id), sameStart);
 });
 
 void test('mixed-format workouts keep legacy units and accept independent measurements', () => {

@@ -1,11 +1,11 @@
-import { exerciseHistory, progressExercises, strengthTrend } from './analytics.ts';
+import { exactRepRecordIds, exactRepRecords, exerciseHistory, progressExercises, strengthTrend } from './analytics.ts';
 import { matchesExerciseName, pickerTags, starterExercises } from './catalog.ts';
 import { journalFolder } from './journal-paths.ts';
 import {
-  combineAliases, describeSet, exerciseFrontmatter, isDate, isDistanceUnit, isElevationUnit, isId, isRecord, isUnit,
+  combineAliases, compareWorkouts, describeSet, exerciseFrontmatter, isDate, isDistanceUnit, isElevationUnit, isId, isRecord, isUnit,
   measurements, parseDuration, readExercise, setMeasurements,
   tagGroups, validateSet, type DistanceUnit, type ElevationUnit, type Exercise, type ExerciseChoice, type ExerciseNote, type ExerciseTag,
-  type LedgerData, type Measurement, type WeightUnit, type WorkoutChange, type WorkoutFile, type WorkoutSet,
+  type LedgerData, type Measurement, type WeightUnit, type Workout, type WorkoutChange, type WorkoutFile, type WorkoutSet,
 } from './model.ts';
 
 import { displayUnits, entryUnits, type MeasurementSystem, type MeasurementUnits } from './units.ts';
@@ -14,10 +14,23 @@ export const maxPlanBytes = 512 * 1024;
 
 export interface PlanNote { path: string; title: string }
 
+export type WorkoutSaveResult = WorkoutFile & { personalRecord?: true; personalRecordSetIds?: Record<string, string[]> };
+
+export function workoutSaveResult(data: LedgerData, saved: WorkoutFile, newSetId?: string): WorkoutSaveResult {
+  const workouts = data.workouts.filter(({ workout }) => workout.id !== saved.workout.id).map(({ workout }) => workout);
+  workouts.push(saved.workout);
+  const personalRecordSetIds = exactRepRecordIds(workouts);
+  return {
+    ...saved, personalRecordSetIds,
+    ...(newSetId && personalRecordSetIds[saved.workout.id]?.includes(newSetId) ? { personalRecord: true } : {}),
+  };
+}
+
 export interface LogSetInput {
   date: string;
   selectedDate?: boolean;
   workoutId: string | null;
+  automaticSession?: boolean;
   exerciseId: string;
   setId: string;
   values: SetInputs;
@@ -67,6 +80,7 @@ export function exerciseProgress(data: LedgerData, exerciseId: string | null, jo
   const selected = exercises.find(({ id }) => id === exerciseId);
   const workouts = data.workouts.map(({ workout }) => workout);
   const history = selected ? exerciseHistory(workouts, selected.id) : [];
+  const records = selected ? exactRepRecords(workouts, selected.id) : undefined;
   const unit = selected?.weightUnit ?? journalUnit;
   const units = displayUnits(system, selected);
   const trend = strengthTrend(history, unit);
@@ -86,9 +100,18 @@ export function exerciseProgress(data: LedgerData, exerciseId: string | null, jo
     trend: trend.map(({ date, sessionId, set, value }) => ({
       date, sessionId, number: sessionNumber(date, sessionId), value, set: describeSet(set, units),
     })),
-    sessions: history.map(({ workout: { id, date }, sets }) => ({
-      id, date, number: sessionNumber(date, id), sets: sets.map((set) => describeSet(set, units)), estimatedMax: estimates.get(id),
-    })),
+    sessions: history.map(({ workout: { id, date }, sets }) => {
+      const earned = records?.get(id);
+      const recordsByIndex = sets.flatMap((set, index) =>
+        earned?.has(set) && set.reps !== undefined ? [[index, set.reps] as const] : []);
+      return {
+        id, date, number: sessionNumber(date, id), sets: sets.map((set) => describeSet(set, units)), estimatedMax: estimates.get(id),
+        ...(recordsByIndex.length ? {
+          personalRecordIndices: recordsByIndex.map(([index]) => index),
+          personalRecordReps: Object.fromEntries(recordsByIndex),
+        } : {}),
+      };
+    }),
   };
 }
 
@@ -128,9 +151,31 @@ export function readLogSetInput(input: unknown, today: string) {
     throw new Error('Choose an exercise and a workout session.');
   }
   const date = validateWorkoutDate(input.date, today, input.selectedDate);
+  if (input.automaticSession !== undefined && typeof input.automaticSession !== 'boolean') {
+    throw new Error('Choose a workout session.');
+  }
   if (!isId(input.setId) || !isRecord(input.values)) throw new Error('Missing set ID or measurements.');
   const units = input.units === undefined ? undefined : readEntryUnits(input.units);
-  return { date, exerciseId: input.exerciseId, workoutId: input.workoutId, setId: input.setId, values: input.values, units };
+  return {
+    date, exerciseId: input.exerciseId, workoutId: input.workoutId, setId: input.setId, values: input.values, units,
+    isToday: date === today, automaticSession: date === today && input.automaticSession === true,
+  };
+}
+
+const sessionInactivityMs = 60 * 60 * 1000;
+
+export function latestWorkout(workouts: readonly Workout[], date: string, preferredId?: string | null): Workout | undefined {
+  let latest: Workout | undefined;
+  for (const workout of workouts) {
+    if (workout.date === date && (!latest || compareWorkouts(workout, latest, preferredId) > 0)) latest = workout;
+  }
+  return latest;
+}
+
+export function automaticWorkout(workouts: readonly Workout[], date: string, now: Date, preferredId?: string | null): Workout | undefined {
+  const latest = latestWorkout(workouts, date, preferredId);
+  const loggedAt = latest?.sets.at(-1)?.loggedAt;
+  return loggedAt && now.getTime() - Date.parse(loggedAt) >= sessionInactivityMs ? undefined : latest;
 }
 
 function readEntryUnits(units: unknown): Required<MeasurementUnits> {
@@ -140,7 +185,7 @@ function readEntryUnits(units: unknown): Required<MeasurementUnits> {
   return { weightUnit: units.weightUnit, distanceUnit: units.distanceUnit, elevationUnit: units.elevationUnit };
 }
 
-export function prepareLogSet(data: LedgerData, input: ReturnType<typeof readLogSetInput>, unit: WeightUnit, system?: MeasurementSystem):
+export function prepareLogSet(data: LedgerData, input: ReturnType<typeof readLogSetInput>, unit: WeightUnit, system?: MeasurementSystem, now = new Date()):
   { replay: WorkoutFile } | { original?: WorkoutFile; set: WorkoutSet } {
   if (data.issues.length) throw new Error(data.issues[0]);
   const exercise = data.exercises.find(({ id, archived }) => id === input.exerciseId && !archived);
@@ -166,14 +211,19 @@ export function prepareLogSet(data: LedgerData, input: ReturnType<typeof readLog
 
   const replay = data.workouts.find(({ workout }) => workout.sets.some(({ id }) => id === set.id));
   if (replay) {
-    if (replay.workout.date !== input.date || (input.workoutId !== null && replay.workout.id !== input.workoutId) ||
-      !replay.workout.sets.some((existing) => JSON.stringify(existing) === JSON.stringify(set))) {
+    const existing = replay.workout.sets.find(({ id }) => id === set.id);
+    if (replay.workout.date !== input.date || (!input.automaticSession && input.workoutId !== null && replay.workout.id !== input.workoutId) ||
+      JSON.stringify({ ...existing, loggedAt: undefined }) !== JSON.stringify(set)) {
       throw new Error('This set ID is already in use. Reopen the entry and try again.');
     }
     return { replay };
   }
-  const original = data.workouts.find(({ workout }) => workout.date === input.date && workout.id === input.workoutId);
-  if (input.workoutId !== null && !original) throw new Error('The session is no longer available on that date. Refresh and try again.');
+  const workoutId = input.automaticSession
+    ? automaticWorkout(data.workouts.map(({ workout }) => workout), input.date, now, input.workoutId)?.id
+    : input.workoutId;
+  const original = data.workouts.find(({ workout }) => workout.date === input.date && workout.id === workoutId);
+  if (workoutId != null && !original) throw new Error('The session is no longer available on that date. Refresh and try again.');
+  if (input.isToday) set.loggedAt = now.toISOString();
   return { original, set };
 }
 
