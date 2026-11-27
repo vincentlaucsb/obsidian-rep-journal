@@ -78,13 +78,34 @@ export function isWorkoutPlanPath(path: string, root = journalFolder): boolean {
 export function exerciseProgress(data: LedgerData, exerciseId: string | null, journalUnit: WeightUnit, system?: MeasurementSystem) {
   const exercises = progressExercises(data);
   const selected = exercises.find(({ id }) => id === exerciseId);
-  const workouts = data.workouts.map(({ workout }) => workout);
-  const history = selected ? exerciseHistory(workouts, selected.id) : [];
-  const records = selected ? exactRepRecords(workouts, selected.id) : undefined;
-  const unit = selected?.weightUnit ?? journalUnit;
+  const { unit, trend, sessions } = progressHistory(data, selected, journalUnit);
   const units = displayUnits(system, selected);
+  return {
+    exercises, selected, tags: pickerTags(exercises), unit,
+    trend: trend.map(({ set, ...point }) => ({ ...point, set: describeSet(set, units) })),
+    sessions: sessions.map(({ sets, estimatedMax, personalRecordIndices, ...session }) => {
+      const recordsByIndex = personalRecordIndices.flatMap((index) => {
+        const reps = sets[index].reps;
+        return reps === undefined ? [] : [[index, reps] as const];
+      });
+      return {
+        ...session, sets: sets.map((set) => describeSet(set, units)), estimatedMax: estimatedMax?.value,
+        ...(recordsByIndex.length ? {
+          personalRecordIndices,
+          personalRecordReps: Object.fromEntries(recordsByIndex),
+        } : {}),
+      };
+    }),
+  };
+}
+
+export function progressHistory(data: LedgerData, exercise: ExerciseChoice | undefined, journalUnit: WeightUnit) {
+  const workouts = data.workouts.map(({ workout }) => workout);
+  const history = exercise ? exerciseHistory(workouts, exercise.id) : [];
+  const records = exercise ? exactRepRecords(workouts, exercise.id) : undefined;
+  const unit = exercise?.weightUnit ?? journalUnit;
   const trend = strengthTrend(history, unit);
-  const estimates = new Map(trend.map(({ sessionId, value }) => [sessionId, value]));
+  const estimates = new Map(trend.map(({ sessionId, value, set }) => [sessionId, { value, set }]));
   const days = new Map<string, string[]>();
   for (const { id, date } of workouts) {
     const sessions = days.get(date) ?? [];
@@ -96,20 +117,15 @@ export function exerciseProgress(data: LedgerData, exerciseId: string | null, jo
     return sameDay.length > 1 ? sameDay.indexOf(id) + 1 : undefined;
   };
   return {
-    exercises, selected, tags: pickerTags(exercises), unit,
-    trend: trend.map(({ date, sessionId, set, value }) => ({
-      date, sessionId, number: sessionNumber(date, sessionId), value, set: describeSet(set, units),
-    })),
+    unit,
+    trend: trend.map((point) => ({ ...point, number: sessionNumber(point.date, point.sessionId) })),
     sessions: history.map(({ workout: { id, date }, sets }) => {
       const earned = records?.get(id);
-      const recordsByIndex = sets.flatMap((set, index) =>
-        earned?.has(set) && set.reps !== undefined ? [[index, set.reps] as const] : []);
+      const best = estimates.get(id);
       return {
-        id, date, number: sessionNumber(date, id), sets: sets.map((set) => describeSet(set, units)), estimatedMax: estimates.get(id),
-        ...(recordsByIndex.length ? {
-          personalRecordIndices: recordsByIndex.map(([index]) => index),
-          personalRecordReps: Object.fromEntries(recordsByIndex),
-        } : {}),
+        id, date, number: sessionNumber(date, id), sets,
+        estimatedMax: best ? { value: best.value, setIndex: sets.indexOf(best.set) } : null,
+        personalRecordIndices: sets.flatMap((set, index) => earned?.has(set) ? [index] : []),
       };
     }),
   };

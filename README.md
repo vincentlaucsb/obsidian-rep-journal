@@ -32,6 +32,20 @@ The 1RM chart runs locally. Obsidian embeds the svgplot WebAssembly renderer in 
 
 In **Menu → Export**, **Export CSV** and **Export JSON** save dated copies in the journal folder's `Exports` subfolder. The fixed `rep-journal.csv` updates when you log or edit training data. Use **Refresh automatic CSV** to update it after external changes. **Prepare workout context** previews a date-filtered snapshot for your preferred LLM. You can add a training goal, equipment, days per week, and opt in to including workout notes before copying.
 
+### Query progress from the terminal
+
+The progress command requires desktop Obsidian 1.12.2 or later with the native CLI installed. Enable Rep Journal in the target vault and turn on **Settings → General → Command line interface**. Use the vault's name in place of `dev-vault`. Obsidian opens if needed. [Obsidian CLI setup](https://obsidian.md/help/cli)
+
+```sh
+obsidian vault=dev-vault help rep-journal:progress
+obsidian vault=dev-vault rep-journal:progress exercise="Bench Press"
+obsidian vault=dev-vault rep-journal:progress exercise="Barbell Bench Press" since=2026-10-01 format=json
+```
+
+Pass an exercise name, alias, or ID. The report lists sessions newest first, with logged sets, estimated one-rep maxes where available, and the same rep-specific records as the Progress screen. The optional `since` date includes that day's sessions. Records still use the full history, including sessions before that date.
+
+The default output is text. With `format=json`, each session includes its recorded `sets` with their original units. When available, `estimatedMax.value` uses the report's `unit` and `estimatedMax.setIndex` identifies the set behind it. Both that index and the entries in `personalRecordIndices` count from zero within the session. Scripts should check that the response parses as JSON. On Windows, Obsidian can print a plain-text error and exit with status zero.
+
 ## Obsidian plugin
 
 **Open workout log** and the dumbbell ribbon button open Today inside Obsidian. Today follows the vault’s theme and offers the same editing, calendar, and [workout plan](docs/WORKOUT-PLANS.md) views as the standalone app. From **Exercises**, open an exercise’s Markdown note in a new tab.

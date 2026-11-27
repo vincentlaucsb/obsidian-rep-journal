@@ -28,7 +28,11 @@ export function parseJournalSettings(text: string): Record<string, unknown> {
 }
 
 export function parseJournalFolder(text: string): string {
-  const value = parseJournalSettings(text).journalFolder;
+  return readJournalFolder(parseJournalSettings(text));
+}
+
+export function readJournalFolder(settings: Record<string, unknown>): string {
+  const value = settings.journalFolder;
   if (value === undefined) return journalFolder;
   if (typeof value !== 'string') throw new Error('The journal folder setting must be a string.');
   return normalizeJournalFolder(value);
