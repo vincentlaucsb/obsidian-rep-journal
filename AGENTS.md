@@ -1,5 +1,6 @@
 # Rep Journal
 
+- Push the tested release commit to `master` and verify its public `manifest.json` reports the intended version before pushing the release tag. After publication, verify the release manifest matches the one on `master`.
 - Trace vault operations through both entry points. Obsidian can hide workout JSON from its file index, and the standalone server reads the same journal through Node. Keep record parsing, ordering, and plan matching shared. Keep filesystem access and event subscriptions in the host adapters.
 - When optimizing a save or a picker, measure it through the adapter or HTTP endpoint. Count file-body reads and metadata calls separately. For caches, exercise a second unchanged request and an external edit. For automatic CSV, compare the saved bytes with `toCsv` from a fresh ledger, including a failed or overlapping refresh.
 - Verify Obsidian cache assumptions in the installed-host fixture. A sync tool can replace a file with same-length content and preserve its modification time. In that case Obsidian can retain old bytes in `cachedRead` and suppress the modify event.

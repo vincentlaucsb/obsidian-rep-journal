@@ -86,6 +86,26 @@ jobs:
             manifest.json
             styles.css
 
+      - name: Verify master before publishing
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          repo="repos/$GITHUB_REPOSITORY"
+          master=$(gh api "$repo/git/ref/heads/master" --jq '.object.sha')
+          tagged=$(git rev-parse HEAD)
+          base=$(gh api "$repo/compare/$tagged...$master" --jq '.merge_base_commit.sha')
+          if [[ "$base" != "$tagged" ]]; then
+            echo "::error::Push the tagged release commit to master before publishing."
+            exit 1
+          fi
+          version=$(gh api "$repo/contents/manifest.json?ref=$master" --jq '.content | @base64d | fromjson | .version')
+          if [[ "$version" != "$RELEASE_TAG" ]]; then
+            echo "::error::The manifest on master reports $version. Expected $RELEASE_TAG."
+            exit 1
+          fi
+
       - name: Publish GitHub release
         shell: bash
         env:
