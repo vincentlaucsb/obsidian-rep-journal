@@ -46,10 +46,11 @@ export async function existingVaultFile(root: string, path: string): Promise<str
   if (!path || path.includes('\\') || path.startsWith('/') || path.split('/').some((part) => !part || part === '.' || part === '..' || part.startsWith('.'))) {
     throw new Error('Choose a file inside the vault.');
   }
-  const candidate = resolve(root, path);
-  if (!isInside(root, candidate) || !(await lstat(candidate)).isFile()) throw new Error('Choose a file inside the vault.');
+  const canonicalRoot = await realpath(root);
+  const candidate = resolve(canonicalRoot, path);
+  if (!isInside(canonicalRoot, candidate) || !(await lstat(candidate)).isFile()) throw new Error('Choose a file inside the vault.');
   const actual = await realpath(candidate);
-  if (!isInside(root, actual)) throw new Error('Choose a file inside the vault.');
+  if (!isInside(canonicalRoot, actual)) throw new Error('Choose a file inside the vault.');
   return actual;
 }
 

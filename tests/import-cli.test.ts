@@ -12,7 +12,7 @@ import { exerciseFilename, journalSettingsFile } from '../src/journal-paths.ts';
 import { stringify } from 'yaml';
 import { toCsv } from '../src/exports.ts';
 import { planGarminElevation, writeGarminElevation } from '../scripts/garmin-elevation-backfill.ts';
-import { readImportVault } from '../scripts/import-vault.ts';
+import { existingVaultFile, readImportVault } from '../scripts/import-vault.ts';
 
 const cli = fileURLToPath(new URL('../scripts/import-cli.ts', import.meta.url));
 const testDate = '2026-11-20';
@@ -186,6 +186,21 @@ void test('apply returns completed paths after a write error and accepts the sam
     written: { exercises: [{ exerciseId: pullup.id, path: blockedPath }], workouts: [{ path: `Rep Journal/Workouts/2026/${testDate}.json` }] },
   });
   assert.equal((await readdir(join(vault, 'Rep Journal', 'Exercises'))).length, 2);
+});
+
+void test('a vault opened through a directory alias resolves its own files and rejects an outside target', async (context) => {
+  const parent = await scratchVault(context);
+  const vault = join(parent, 'Vault');
+  const alias = join(parent, 'Vault Alias');
+  const outside = join(parent, 'Outside');
+  await mkdir(vault);
+  await mkdir(outside);
+  await writeFile(join(vault, 'Plan.md'), 'Inside');
+  await writeFile(join(outside, 'Plan.md'), 'Outside');
+  await symlink(vault, alias, 'junction');
+  await symlink(outside, join(vault, 'Linked'), 'junction');
+  assert.equal(await readFile(await existingVaultFile(alias, 'Plan.md'), 'utf8'), 'Inside');
+  await assert.rejects(existingVaultFile(alias, 'Linked/Plan.md'), /inside the vault/);
 });
 
 void test('apply rejects an outside-vault symlink in the configured folder path', async (context) => {
